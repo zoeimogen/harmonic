@@ -1,0 +1,13 @@
+services:
+  harmonic:
+    build:
+      context: .
+    image: zoeimogen/harmonic:latest
+    env_file: harmonic.env
+    environment:
+      HARMONIC_DATA_DIR: /data
+    user: "1000:1000"
+    volumes:
+      - ./data:/data
+      - ./workspaces:/workspaces
+    restart: unless-stopped

@@ -19,3 +19,6 @@ scratch_*
 .impeccable/critique/
 .superpowers/
 .worktrees-local/
+
+.env
+harmonic.env
