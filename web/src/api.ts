@@ -1,5 +1,6 @@
 import type {
   Attempt,
+  ActivityProcess,
   AppConfig,
   ConfigLayers,
   AttemptUsage,
@@ -12,6 +13,10 @@ import type {
   Cost,
   DiffFile,
   FsListing,
+  GitStatusEntry,
+  WorkspaceFile,
+  WorkspaceFileEntry,
+  WorkspaceFileListing,
   GuardrailEvent,
   MapRollup,
   PermissionRule,
@@ -22,13 +27,15 @@ import type {
   Task,
   TicketTimelineEvent,
   VerificationAttempt,
-  VerificationCommand,
-  TaskVerificationCritic,
-  EpicVerificationCritic,
+  CommandOverlayEntry,
+  TaskCriticOverlayEntry,
+  EpicCriticOverlayEntry,
   VerifierStatus,
   Workspace,
+  UpdateState,
   HarnessProvider,
   DiscoveredHarnessModel,
+  TimelineResponse,
 } from './types.js';
 import type { Epic, EpicIntegrateOutcome } from './epic-model.js';
 import type { Stats } from './stats-model.js';
@@ -64,6 +71,11 @@ export const api = {
   harnessModels: (harness: string, provider: string) => request<{ models: DiscoveredHarnessModel[] }>('GET', `/api/harnesses/${encodeURIComponent(harness)}/models?provider=${encodeURIComponent(provider)}`),
   config: () => request<AppConfig>('GET', '/api/config'),
   globalPause: () => request<{ paused: boolean }>('GET', '/api/global-pause'),
+  updateState: () => request<UpdateState>('GET', '/api/update'),
+  armUpdate: () => request<UpdateState>('POST', '/api/update/arm'),
+  cancelUpdate: () => request<UpdateState>('DELETE', '/api/update/arm'),
+  dismissUpdate: () => request<UpdateState>('POST', '/api/update/dismiss'),
+  checkUpdate: () => request<UpdateState>('POST', '/api/update/check'),
   pauseGlobal: () => request<{ paused: boolean }>('POST', '/api/global-pause'),
   resumeGlobal: () => request<{ paused: boolean }>('DELETE', '/api/global-pause'),
   configLayers: () => request<ConfigLayers>('GET', '/api/config/layers'),
@@ -85,8 +97,17 @@ export const api = {
     return request<{ tasks: Task[]; total: number }>('GET', query ? `/api/tasks?${query}` : '/api/tasks');
   },
   task: (id: number) => request<Task>('GET', `/api/tasks/${id}`),
-  stats: (from: number, to: number, workspaceId: number) =>
-    request<Stats>('GET', `/api/stats?from=${from}&to=${to}&workspaceId=${workspaceId}`),
+  stats: (from: number, to: number, workspaceId?: number) => {
+    const query = new URLSearchParams({ from: String(from), to: String(to) });
+    if (workspaceId !== undefined) query.set('workspaceId', String(workspaceId));
+    return request<Stats>('GET', `/api/stats?${query}`);
+  },
+  activity: (workspaceId?: number) => request<{ processes: ActivityProcess[] }>('GET', workspaceId === undefined ? '/api/activity' : `/api/activity?workspaceId=${workspaceId}`),
+  timeline: (workspaceId: number | undefined, from: number, to: number) => {
+    const query = new URLSearchParams({ from: String(from), to: String(to) });
+    if (workspaceId !== undefined) query.set('workspaceId', String(workspaceId));
+    return request<TimelineResponse>('GET', `/api/timeline?${query}`);
+  },
   epicStats: (epicRef: number, workspaceId: number) =>
     request<Stats>('GET', `/api/epics/${epicRef}/stats?workspaceId=${workspaceId}`),
   createTask: (input: Partial<Task> & { prompt: string; state?: 'draft' | 'ready' }) =>
@@ -95,16 +116,39 @@ export const api = {
   // path starts at the server user's home. Operator-only (full-scope session).
   browseFs: (path?: string) =>
     request<FsListing>('GET', path ? `/api/fs?path=${encodeURIComponent(path)}` : '/api/fs'),
-  worktrees: ({ limit, offset }: { limit?: number; offset?: number } = {}) => {
+  workspaceFiles: (workspaceId: number, path = '', offset = 0) => {
+    const query = new URLSearchParams({ workspaceId: String(workspaceId), path, offset: String(offset) });
+    return request<WorkspaceFileListing>('GET', `/api/fs/tree?${query}`);
+  },
+  workspaceFile: (workspaceId: number, path: string) =>
+    request<WorkspaceFile>('GET', `/api/fs/file?workspaceId=${workspaceId}&path=${encodeURIComponent(path)}`),
+  workspaceRawUrl: (workspaceId: number, path: string) =>
+    `/api/fs/raw?workspaceId=${workspaceId}&path=${encodeURIComponent(path)}`,
+  saveWorkspaceFile: (workspaceId: number, path: string, text: string) =>
+    request<WorkspaceFile>('PUT', `/api/fs/file?workspaceId=${workspaceId}&path=${encodeURIComponent(path)}`, { text }),
+  createWorkspaceEntry: (workspaceId: number, path: string, type: 'file' | 'directory') =>
+    request<WorkspaceFileEntry>('POST', '/api/fs/create', { workspaceId, path, type }),
+  moveWorkspaceEntry: (workspaceId: number, from: string, to: string) =>
+    request<WorkspaceFileEntry>('POST', '/api/fs/move', { workspaceId, from, to }),
+  deleteWorkspaceEntry: (workspaceId: number, path: string) =>
+    request<{ ok: true }>('POST', '/api/fs/delete', { workspaceId, path }),
+  gitStatus: (workspaceId: number) => request<{ entries: GitStatusEntry[] }>('GET', `/api/git/status?workspaceId=${workspaceId}`),
+  stageGitPaths: (workspaceId: number, paths: string[]) => request<{ ok: true }>('POST', '/api/git/stage', { workspaceId, paths }),
+  unstageGitPaths: (workspaceId: number, paths: string[]) => request<{ ok: true }>('POST', '/api/git/unstage', { workspaceId, paths }),
+  discardGitPaths: (workspaceId: number, paths: string[]) => request<{ ok: true }>('POST', '/api/git/discard', { workspaceId, paths }),
+  commitGitChanges: (workspaceId: number, message: string) => request<{ ok: true }>('POST', '/api/git/commit', { workspaceId, message }),
+  gitFileDiff: (workspaceId: number, path: string) => request<{ file: DiffFile | null }>('GET', `/api/git/diff?workspaceId=${workspaceId}&path=${encodeURIComponent(path)}`),
+  worktrees: ({ workspaceId, limit, offset }: { workspaceId?: number; limit?: number; offset?: number } = {}) => {
     const params = new URLSearchParams();
+    if (workspaceId !== undefined) params.set('workspaceId', String(workspaceId));
     if (limit !== undefined) params.set('limit', String(limit));
     if (offset !== undefined) params.set('offset', String(offset));
     const query = params.toString();
     return request<{ worktrees: WorktreeInventoryEntry[]; total: number; reconciledAt: number | null }>('GET', query ? `/api/worktrees?${query}` : '/api/worktrees');
   },
-  dirtyWorktreeFiles: (id: string) => request<{ files: string[] }>('GET', `/api/worktrees/${encodeURIComponent(id)}/dirty-files`),
-  cleanupWorktree: (id: string) => request<{ removed: boolean }>('POST', `/api/worktrees/${encodeURIComponent(id)}/cleanup`),
-  reconcileWorktrees: () => request<{ removed: number; recreated: number; flagged: number }>('POST', '/api/operations/reconcile'),
+  dirtyWorktreeFiles: (id: string, workspaceId?: number) => request<{ files: string[] }>('GET', `/api/worktrees/${encodeURIComponent(id)}/dirty-files${workspaceId === undefined ? '' : `?workspaceId=${workspaceId}`}`),
+  cleanupWorktree: (id: string, workspaceId?: number) => request<{ removed: boolean }>('POST', `/api/worktrees/${encodeURIComponent(id)}/cleanup${workspaceId === undefined ? '' : `?workspaceId=${workspaceId}`}`),
+  reconcileWorktrees: (workspaceId?: number) => request<{ removed: number; recreated: number; flagged: number }>('POST', `/api/operations/reconcile${workspaceId === undefined ? '' : `?workspaceId=${workspaceId}`}`),
   workspaces: () => request<{ workspaces: Workspace[]; total: number }>('GET', '/api/workspaces'),
   createWorkspace: (input: { name: string; workingDir: string }) =>
     request<Workspace>('POST', '/api/workspaces', input),
@@ -115,8 +159,10 @@ export const api = {
     patch: {
       name?: string;
       workingDir?: string;
+      color?: string;
       trackerEnabled?: boolean;
       trackerPollIntervalSeconds?: number;
+      excludedDirectories?: string[] | null;
       harness?: string | null;
       model?: string | null;
       chatHarness?: string | null;
@@ -128,12 +174,12 @@ export const api = {
       autoRunnerEnabled?: boolean | null;
       maxAttempts?: number | null;
       contextReuseTokenLimit?: number | null;
-      taskPreMergeCommands?: VerificationCommand[] | null;
-      taskPreMergeCritics?: TaskVerificationCritic[] | null;
-      taskPostMergeCommands?: VerificationCommand[] | null;
-      taskPostMergeCritics?: TaskVerificationCritic[] | null;
-      epicPreMergeCommands?: VerificationCommand[] | null;
-      epicPreMergeCritics?: EpicVerificationCritic[] | null;
+      taskPreMergeCommands?: CommandOverlayEntry[] | null;
+      taskPreMergeCritics?: TaskCriticOverlayEntry[] | null;
+      taskPostMergeCommands?: CommandOverlayEntry[] | null;
+      taskPostMergeCritics?: TaskCriticOverlayEntry[] | null;
+      epicPreMergeCommands?: CommandOverlayEntry[] | null;
+      epicPreMergeCritics?: EpicCriticOverlayEntry[] | null;
       guardrailBudget?: BudgetGuardrail | null;
       guardrailProgress?: boolean | null;
       toolTimeoutMinutes?: number | null;
@@ -170,12 +216,16 @@ export const api = {
   cancelTask: (id: number, withDependents = false) =>
     request<Task>('POST', `/api/tasks/${id}/cancel`, withDependents ? { withDependents } : {}),
   pauseTask: (id: number) => request<Task>('POST', `/api/tasks/${id}/pause`),
-  resumeTask: (id: number) => request<Task>('POST', `/api/tasks/${id}/resume`),
+  resumeTask: (id: number, continuation?: 'full' | 'condensed') =>
+    request<Task>('POST', `/api/tasks/${id}/resume`, continuation ? { continuation } : undefined),
   /** Operator override: stop a working task's agent and settle it done, skipping verification. */
   completeTask: (id: number) => request<Task>('POST', `/api/tasks/${id}/complete`),
   /** Steer a running task: queue a message for its active run, delivered at the next turn boundary. */
   steerTask: (id: number, text: string) =>
     request<{ ok: true }>('POST', `/api/tasks/${id}/steer`, { text }),
+  /** Extend a working task's wall-clock time guardrail by `minutes`. */
+  extendGuardrail: (id: number, minutes: number) =>
+    request<Task>('POST', `/api/tasks/${id}/extend-guardrail`, { minutes }),
   uncancelTask: (id: number) => request<Task>('POST', `/api/tasks/${id}/uncancel`),
   addDependency: (id: number, dependsOnId: number) =>
     request<Task>('POST', `/api/tasks/${id}/dependencies`, { dependsOnId }),
@@ -185,11 +235,9 @@ export const api = {
   rejectEpic: (workspaceId: number, epicRef: number, guidance: string, continuation: 'continue' | 'fresh') =>
     request<EpicIntegrateOutcome>('POST', `/api/workspaces/${workspaceId}/epics/${epicRef}/reject`, { guidance, continuation }),
   // The three escalation actions, escalated tickets only.
-  // `force: true` is the as-is override (Force-Accept): the server skips
-  // candidate verification and merges the branch head as it stands. Omitted
-  // (or false) is the default Accept, which verifies first.
-  acceptTask: (id: number, opts?: { force?: boolean }) =>
-    request<Task>('POST', `/api/tasks/${id}/accept`, opts?.force ? { force: true } : {}),
+  // Accept merges the candidate as-is — the operator's judgement is the gate,
+  // no verification runs.
+  acceptTask: (id: number) => request<Task>('POST', `/api/tasks/${id}/accept`),
   rejectTask: (id: number, guidance: string, start = false) =>
     request<Task>('POST', `/api/tasks/${id}/reject`, { guidance, start }),
   closeTask: (id: number) => request<Task>('POST', `/api/tasks/${id}/close`),
@@ -241,12 +289,14 @@ export const api = {
       workspaceId ? `/api/conversations?workspaceId=${workspaceId}` : '/api/conversations',
     ),
   conversation: (id: number) => request<Conversation>('GET', `/api/conversations/${id}`),
-  createConversation: (input: { workspaceId?: number; harness?: string; model?: string; workingDir?: string }) =>
+  createConversation: (input: { workspaceId?: number; harness?: string; model?: string; workingDir?: string; permissionMode?: 'ask' | 'automatic' }) =>
     request<Conversation>('POST', '/api/conversations', input),
   // title: null clears an operator-set title, falling back to the one
   // derived from the first Turn.
   renameConversation: (id: number, title: string | null) =>
     request<Conversation>('PATCH', `/api/conversations/${id}`, { title }),
+  setConversationPermissionMode: (id: number, permissionMode: 'ask' | 'automatic') =>
+    request<Conversation>('PATCH', `/api/conversations/${id}`, { permissionMode }),
   deleteConversation: (id: number) => request<{ ok: true }>('DELETE', `/api/conversations/${id}`),
   conversationEvents: (id: number) =>
     request<{ events: ConversationEvent[]; total: number }>('GET', `/api/conversations/${id}/events`),

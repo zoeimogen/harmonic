@@ -20,6 +20,7 @@ import { sumCosts, type Cost } from '../domain/pricing.js';
 import type { AttemptUsage, AttemptUsageSnapshot, ProcessTree } from '../execution/usage.js';
 import type { OperationEvent, OperationSnapshot } from '../telemetry/operations.js';
 import { z } from 'zod';
+import type { AdvertisedCommand } from '../execution/conversation-driver.js';
 
 export const parseUsage = (raw: string | null): AttemptUsage | null => (raw ? (JSON.parse(raw) as AttemptUsage) : null);
 export const parseCost = (raw: string | null): Cost | null => (raw ? (JSON.parse(raw) as Cost) : null);
@@ -667,6 +668,9 @@ export type ApiConversation = Omit<ConversationRow, 'usage' | 'workspaceId'> & {
   contextWindow: number | null;
   /** The harness cache's warm duration in seconds, derived from current configuration. */
   cacheWarmSeconds: number | null;
+  coldResume: boolean;
+  commands: AdvertisedCommand[];
+  commandPrefix: string;
 };
 
 const DERIVED_TITLE_MAX = 80;
@@ -691,6 +695,9 @@ export function conversationToApiDto(
     cost: Cost | null;
     contextWindow: number | null;
     cacheWarmSeconds: number | null;
+    coldResume?: boolean;
+    commands?: AdvertisedCommand[];
+    commandPrefix: string;
   },
 ): ApiConversation {
   const { usage: rawUsage, ...rest } = conversation;
@@ -703,5 +710,8 @@ export function conversationToApiDto(
     contextTokens: conversation.contextTokens,
     contextWindow: resolved.contextWindow,
     cacheWarmSeconds: resolved.cacheWarmSeconds,
+    coldResume: resolved.coldResume ?? false,
+    commands: resolved.commands ?? [],
+    commandPrefix: resolved.commandPrefix,
   };
 }

@@ -17,6 +17,7 @@ import {
   type WorkspaceIdentityRow,
 } from '../db/schema.js';
 import { DomainError } from './errors.js';
+import { WORKSPACE_COLORS, WORKSPACE_BADGE_INK } from './workspace-colors.js';
 import { deleteAttemptsAndChildrenAsync } from './attempt-cascade.js';
 import {
   verificationCommandOverrideSchema,
@@ -25,6 +26,21 @@ import {
   budgetGuardrailSchema,
   MERGE_FATES,
 } from '../config.js';
+
+export const DEFAULT_EXCLUDED_DIRECTORIES = ['.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.turbo', 'out', 'target'] as const;
+export { WORKSPACE_COLORS, WORKSPACE_BADGE_INK };
+
+const workspaceColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'color must be a six-digit hex colour').refine((color) => {
+  const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16) / 255);
+  const luminance = channels.map((channel) => channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index]!, 0);
+  return (luminance + 0.05) / 0.05 >= 4.5;
+}, 'color must provide AA contrast with the badge initial');
+
+const excludedDirectorySchema = z.string().min(1).refine(
+  (path) => path === path.split('/').filter(Boolean).join('/') && !path.includes('\\') && !path.split('/').includes('.') && !path.split('/').includes('..'),
+  'excluded directory must be a canonical relative path within the workspace',
+);
 
 export const createWorkspaceInputSchema = z.object({
   name: z.string().min(1, 'name is required').meta({ example: 'Harmonic' }),
@@ -42,6 +58,7 @@ export type CreateWorkspaceInput = z.infer<typeof createWorkspaceInputSchema>;
  * omitted (`undefined`) field is left untouched.
  */
 export const workspaceOverridesSchema = z.object({
+  excludedDirectories: z.array(excludedDirectorySchema).nullable().optional(),
   harness: z.string().min(1).nullable().optional().meta({ example: 'codex' }),
   model: z.string().min(1).nullable().optional().meta({ example: 'gpt-5' }),
   /** Chat-default Harness override; null inherits `config.chat.harness`. */
@@ -86,6 +103,7 @@ export type WorkspaceOverrides = z.infer<typeof workspaceOverridesSchema>;
 
 /** Every per-Workspace setting override key. */
 export const OVERRIDE_KEYS = [
+  'excludedDirectories',
   'harness',
   'model',
   'chatHarness',
@@ -127,7 +145,7 @@ export interface WorkspaceSettingsStore {
 
 export const updateWorkspaceInputSchema = createWorkspaceInputSchema
   .partial()
-  .extend(workspaceOverridesSchema.shape);
+  .extend({ ...workspaceOverridesSchema.shape, color: workspaceColorSchema.optional() });
 export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceInputSchema>;
 
 /** The given Workspace, or the earliest-created one when `id` is omitted — the default-Workspace fallback. */
@@ -157,6 +175,7 @@ export class WorkspaceService {
     const o = this.settings.getOverrides(row.id);
     return {
       ...row,
+      excludedDirectories: o.excludedDirectories ?? [...DEFAULT_EXCLUDED_DIRECTORIES],
       harness: o.harness,
       model: o.model,
       chatHarness: o.chatHarness,
@@ -211,20 +230,29 @@ export class WorkspaceService {
     const workingDir = this.assertUsableDir(input.workingDir);
     await this.assertUniquePath(workingDir);
     const now = Date.now();
-    const inserted = await this.db.write((db) =>
-      db
+    const inserted = await this.db.write(async (db) => {
+      const existing = await db.select({ color: workspaces.color }).from(workspaces).all();
+      const count = new Map(WORKSPACE_COLORS.map((color) => [color, 0]));
+      for (const { color } of existing) {
+        const paletteColor = color.toUpperCase() as (typeof WORKSPACE_COLORS)[number];
+        count.set(paletteColor, (count.get(paletteColor) ?? 0) + 1);
+      }
+      const color = WORKSPACE_COLORS.reduce((least, candidate) => count.get(candidate)! < count.get(least)! ? candidate : least);
+      return db
         .insert(workspaces)
         .values({
           name: input.name,
           workingDir,
+          color,
           trackerEnabled: input.trackerEnabled ?? false,
           trackerPollIntervalSeconds: input.trackerPollIntervalSeconds ?? 60,
           createdAt: now,
           updatedAt: now,
         })
         .returning()
-        .get(),
-    );
+        .get();
+    });
+    await this.settings.setOverrides(inserted.id, { excludedDirectories: [...DEFAULT_EXCLUDED_DIRECTORIES] });
     return this.compose(inserted);
   }
 
@@ -238,6 +266,7 @@ export class WorkspaceService {
         .set({
           name: input.name ?? current.name,
           workingDir,
+          color: input.color ?? current.color,
           trackerEnabled: input.trackerEnabled ?? current.trackerEnabled,
           trackerPollIntervalSeconds: input.trackerPollIntervalSeconds ?? current.trackerPollIntervalSeconds,
           updatedAt: Date.now(),
@@ -246,7 +275,7 @@ export class WorkspaceService {
         .returning()
         .get(),
     );
-    const { name: _name, workingDir: _workingDir, trackerEnabled: _trackerEnabled, trackerPollIntervalSeconds: _trackerPollIntervalSeconds, ...overridesPatch } = input;
+    const { name: _name, workingDir: _workingDir, color: _color, trackerEnabled: _trackerEnabled, trackerPollIntervalSeconds: _trackerPollIntervalSeconds, ...overridesPatch } = input;
     await this.settings.setOverrides(id, overridesPatch);
     return this.compose(identityRow!);
   }
@@ -318,4 +347,5 @@ export class WorkspaceService {
     );
     if (clash) throw new DomainError('conflict', `a workspace already uses '${workingDir}'`);
   }
+
 }

@@ -107,7 +107,14 @@ describe('stats-async-path', () => {
 
         expect(total).toBeGreaterThan(0);
         expect(elapsedMs).toBeGreaterThan(200);
-        expect(stalls).toEqual([]);
+        // The heavy read runs in the Stats worker thread, so the main event
+        // loop keeps ticking: a main-thread run would block it for ~elapsedMs,
+        // so any real stall approaches the read's own duration. A brief ambient
+        // hiccup on a loaded CI box is not that — tolerate up to half the read
+        // time (and at least 300ms) so the check stays about offloading, not CI
+        // jitter.
+        const worstLagMs = stalls.reduce((max, stall) => Math.max(max, stall.lagMs), 0);
+        expect(worstLagMs).toBeLessThan(Math.max(elapsedMs / 2, 300));
       } finally {
         monitor.stop();
         await worker.close();
@@ -238,6 +245,13 @@ describe('stats-enriched', () => {
       expect(body.byWorkspace[0].workspaceId).toBe(other.id);
       expect(body.byWorkspace[0].cost.totalUsd).toBeCloseTo(5);
       expect(body.byWorkspace[0].name).toBe('other');
+      expect(body.byWorkspace[0].color).toBe(other.color);
+      expect(body.byWorkspace[0]).toMatchObject({
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      });
     });
 
     it('scopes the enriched aggregates to a single workspace', async () => {
@@ -584,8 +598,8 @@ describe('stats-aggregates', () => {
 
   describe('byWorkspace (ADR-0014 §7)', () => {
     const workspaces = [
-      { id: 1, name: 'alpha' },
-      { id: 2, name: 'beta' },
+      { id: 1, name: 'alpha', color: '#123456' },
+      { id: 2, name: 'beta', color: '#654321' },
     ];
     const taskWorkspaces = [
       { taskId: 10, workspaceId: 1 },
@@ -602,7 +616,15 @@ describe('stats-aggregates', () => {
       const result = byWorkspace(rows, taskWorkspaces, workspaces);
       expect(result.map((r) => r.workspaceId)).toEqual([2, 1]);
       const alpha = result.find((r) => r.workspaceId === 1)!;
-      expect(alpha).toMatchObject({ name: 'alpha', inputTokens: 150, outputTokens: 30, tasks: 2 });
+      expect(alpha).toMatchObject({
+        name: 'alpha',
+        color: '#123456',
+        inputTokens: 150,
+        outputTokens: 30,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        tasks: 2,
+      });
       expect(alpha.cost?.totalUsd).toBeCloseTo(2);
       expect(alpha.failureRate).toBeCloseTo(0.5);
     });
@@ -618,6 +640,16 @@ describe('stats-aggregates', () => {
       const rows: WorkspaceAttempt[] = [{ taskId: 10, state: 'cancelled', usage: null, cost: null }];
       const result = byWorkspace(rows, taskWorkspaces, workspaces);
       expect(result[0]?.failureRate).toBeNull();
+    });
+
+    it('attributes Epic-owned Attempts by their recorded Workspace', () => {
+      const rows: WorkspaceAttempt[] = [
+        { taskId: null, workspaceId: 2, state: 'passed', usage: usage(4, 3), cost: cost(2) },
+      ];
+
+      expect(byWorkspace(rows, taskWorkspaces, workspaces)).toMatchObject([
+        { workspaceId: 2, name: 'beta', inputTokens: 4, outputTokens: 3, tasks: 0 },
+      ]);
     });
   });
 });

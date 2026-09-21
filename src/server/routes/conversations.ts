@@ -3,7 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { App } from '../app.js';
 import { HARNESS_IDS } from '../../config.js';
-import { CONVERSATION_STATES } from '../../db/schema.js';
+import { CONVERSATION_PERMISSION_MODES, CONVERSATION_STATES } from '../../db/schema.js';
 import { resolveScoped } from '../../domain/setting-override.js';
 import { DomainError } from '../../domain/errors.js';
 import { conversationToApi } from '../serialize.js';
@@ -16,12 +16,13 @@ const createConversationInputSchema = z.object({
   harness: z.enum(HARNESS_IDS).optional().meta({ example: 'claude' }),
   model: z.string().min(1).optional().meta({ example: 'sonnet-5' }),
   workingDir: z.string().min(1).optional().meta({ example: '/home/dev/harmonic' }),
+  permissionMode: z.enum(CONVERSATION_PERMISSION_MODES).optional().meta({ example: 'ask' }),
 });
 
-/** Rename a Conversation; null clears the custom title, falling back to the derived one. */
 const updateConversationInputSchema = z.object({
-  title: z.string().nullable().meta({ example: 'Rate limiting for the tasks API' }),
-});
+  title: z.string().nullable().optional().meta({ example: 'Rate limiting for the tasks API' }),
+  permissionMode: z.enum(CONVERSATION_PERMISSION_MODES).optional().meta({ example: 'automatic' }),
+}).refine((input) => input.title !== undefined || input.permissionMode !== undefined);
 
 const turnInputSchema = z.object({
   text: z.string().min(1).meta({ example: 'Why does the rate limiter drop the first request after a restart?' }),
@@ -74,7 +75,8 @@ const conversationSchema = z
     model: z.string().meta({ example: 'sonnet-5' }),
     workingDir: z.string().meta({ example: '/home/dev/harmonic' }),
     state: z.enum(CONVERSATION_STATES).meta({ example: 'active' }),
-    /** The warm ACP session id, set once the harness spawns; null before the first Turn. */
+    permissionMode: z.enum(CONVERSATION_PERMISSION_MODES).meta({ example: 'ask' }),
+    /** The warm ACP session id, set when the Composer opens. */
     sessionId: z.string().nullable().meta({ example: 'b7e4d2a1-6c93-4f18-8a52-1d0f3b9e7c46' }),
     /** Running Usage accumulated across Turns; null before any usage. */
     usage: attemptUsageSchema.nullable(),
@@ -86,6 +88,14 @@ const conversationSchema = z
     contextWindow: z.number().nullable().meta({ example: 200000 }),
     /** The harness cache's warm duration in seconds. */
     cacheWarmSeconds: z.number().nullable().meta({ example: 300 }),
+    coldResume: z.boolean().meta({ example: false }),
+    commands: z.array(z.object({
+      name: z.string(),
+      description: z.string(),
+      argumentHint: z.string().optional(),
+    })),
+    /** The prefix this Harness uses to invoke a slash command; drives the Composer picker. */
+    commandPrefix: z.string().meta({ example: '/' }),
     createdAt: z.number().meta({ example: 1784030400000 }),
     updatedAt: z.number().meta({ example: 1784032260000 }),
     /** Set when the Conversation ends; null while active. */
@@ -124,7 +134,7 @@ export async function conversationRoutes(fastify: FastifyInstance): Promise<void
       schema: {
         tags: ['Conversations'],
         description:
-          'Create a Conversation (an interactive, multi-turn exchange the operator drives with a Harness over ACP). Execution settings default from global config. Operator only; not reachable with an attempt-scoped key. The harness spawns on the first Turn, not here.',
+          'Create a Conversation (an interactive, multi-turn exchange the operator drives with a Harness over ACP). Execution settings default from global config. Operator only; not reachable with an attempt-scoped key. The harness opens its ACP Session without submitting a Turn.',
         security: [{ bearerAuth: [] }, { sessionCookie: [] }],
         body: createConversationInputSchema,
         response: {
@@ -146,8 +156,16 @@ export async function conversationRoutes(fastify: FastifyInstance): Promise<void
         harness,
         model: req.body.model ?? resolveScoped('chatModel', workspace.chatModel, config.chat.model),
         workingDir: req.body.workingDir ?? workspace.workingDir,
+        permissionMode: req.body.permissionMode ?? 'ask',
       });
-      return reply.status(201).send(await conversationToApi(ctx, conversation));
+      try {
+        await ctx.conversationDriver.open(conversation.id);
+      } catch (error) {
+        await ctx.auth.deleteKeysForConversation(conversation.id);
+        await ctx.conversations.delete(conversation.id);
+        throw error;
+      }
+      return reply.status(201).send(await conversationToApi(ctx, await ctx.conversations.get(conversation.id)));
     },
   );
 
@@ -198,20 +216,34 @@ export async function conversationRoutes(fastify: FastifyInstance): Promise<void
       schema: {
         tags: ['Conversations'],
         description:
-          'Rename a Conversation; pass title null to clear it and fall back to the title derived from the first Turn. Operator only; not reachable with an attempt-scoped key.',
+          'Update a Conversation title or permission mode. Pass title null to clear it and fall back to the title derived from the first Turn. Operator only; not reachable with an attempt-scoped key.',
         security: [{ bearerAuth: [] }, { sessionCookie: [] }],
         params: idParamsSchema,
         body: updateConversationInputSchema,
         response: {
-          200: conversationSchema.describe('The renamed Conversation, carrying its new or derived title.'),
+          200: conversationSchema.describe('The updated Conversation.'),
           400: errorResponse('The payload failed validation — see the error message for the offending field.'),
           404: errorResponse('No Conversation has that id.'),
         },
       },
     },
     async (req) => {
-      await ctx.conversations.assertExists(req.params.id);
-      return conversationToApi(ctx, await ctx.conversations.update(req.params.id, { title: req.body.title }));
+      const current = await ctx.conversations.get(req.params.id);
+      if (current.state === 'ended' && req.body.permissionMode !== undefined)
+        throw new DomainError('invalid_state', `conversation ${current.id} has ended`);
+      const conversation = await ctx.conversations.update(req.params.id, {
+        ...(req.body.title !== undefined ? { title: req.body.title } : {}),
+        ...(req.body.permissionMode !== undefined ? { permissionMode: req.body.permissionMode } : {}),
+      });
+      if (req.body.permissionMode !== undefined) {
+        try {
+          await ctx.conversationDriver.setPermissionMode(conversation);
+        } catch (error) {
+          await ctx.conversations.update(req.params.id, { permissionMode: current.permissionMode });
+          throw error;
+        }
+      }
+      return conversationToApi(ctx, conversation);
     },
   );
 
@@ -268,7 +300,7 @@ export async function conversationRoutes(fastify: FastifyInstance): Promise<void
       schema: {
         tags: ['Conversations'],
         description:
-          'Send an operator Turn. Spawns the harness on the first Turn and keeps it warm across Turns; the reply streams over the WebSocket. If a Turn is already running, the message is queued and sent as the next Turn (issue 14). Operator only; not reachable with an attempt-scoped key.',
+          'Send an operator Turn through its warm harness; the reply streams over the WebSocket. If a Turn is already running, the message is queued and sent as the next Turn (issue 14). An ended Conversation that still holds a stored session is reactivated and its ACP session reloaded (a cold resume). Operator only; not reachable with an attempt-scoped key.',
         security: [{ bearerAuth: [] }, { sessionCookie: [] }],
         params: idParamsSchema,
         body: turnInputSchema,
@@ -278,11 +310,12 @@ export async function conversationRoutes(fastify: FastifyInstance): Promise<void
             'The payload failed validation, or the harness could not be spawned — its Working Directory does not exist, or its harness is not configured.',
           ),
           404: errorResponse('No Conversation has that id.'),
-          409: errorResponse('The Conversation has ended, so it can take no further Turns.'),
+          409: errorResponse('The Conversation has ended and holds no session to resume from, so it can take no further Turns.'),
         },
       },
     },
     async (req) => {
+      await ctx.upgrade.assertManualLaunchAllowed();
       const { queued } = await ctx.conversationDriver.submitTurn(req.params.id, req.body.text);
       return { ok: true as const, queued };
     },
@@ -364,7 +397,7 @@ export async function conversationRoutes(fastify: FastifyInstance): Promise<void
       schema: {
         tags: ['Conversations'],
         description:
-          'End a Conversation: stop the harness and mark it ended (its transcript survives read-only; it cannot resume). Operator only; not reachable with an attempt-scoped key.',
+          'End a Conversation: stop the harness and mark it ended (its transcript survives read-only). If it holds a stored session, a later Turn reactivates it and reloads that session as a cold resume. Operator only; not reachable with an attempt-scoped key.',
         security: [{ bearerAuth: [] }, { sessionCookie: [] }],
         params: idParamsSchema,
         response: {

@@ -16,6 +16,30 @@ at least one, and the last cannot be deleted. Deleting one is guarded (no
 in-flight work) and cascades to its Tasks, Attempts, and Conversations.
 _Avoid_: project, repo, context
 
+**Scope**:
+Whether a view is bound to one Workspace or to the whole instance. Two values:
+**Workspace scope** (the default — every page reads only the active Workspace)
+and **Global scope** (pages aggregate across all Workspaces at once, for
+monitoring many Workspaces together). Scope is chosen in the Workspace switcher,
+where **Global** sits as a peer to the Workspace rows, and it drives which
+navigation entries and which pages are shown. A page that has no Global form
+falls back to the Dashboard; a Global page with no per-Workspace form falls back
+to the Workspace's Board when scope returns to a Workspace.
+_Avoid_: view mode, level, context
+
+**Global scope**: see **Scope**.
+
+**Dashboard**:
+The Global-scope home — an instance-wide overview shown when the current page has
+no Global form. Exists only in Global scope.
+
+**Workspace Color**:
+A contrast-safe color assigned to each Workspace (auto-picked from a curated
+palette at creation, editable in Workspace Settings), best-effort unique. With
+the Workspace's first initial it forms the **Workspace badge** used to tell
+Workspaces apart wherever they mix — the Workspace switcher and every Global-scope
+list (Tickets column, Timeline event tag).
+
 **Host Ceiling**:
 The global cap on total concurrent Attempts across all Workspaces — the host's
 safety limit that a Workspace's own concurrency cap can never breach.
@@ -359,10 +383,10 @@ Working Directory over ACP — a sibling to Task, not a variant of it. Unlike
 a Task it is never queued, never picked by the Auto-Runner, and never verified
 or merged; the human is in the loop for every turn. "Chat" is the
 informal UI verb ("open a chat"); the domain noun is Conversation.
-It is **active** while its harness process is warm (spawned on the first
-turn, kept alive across widget/socket close) and **ended** once explicitly
-ended, idle past the timeout, or killed by a server restart — an ended
-Conversation survives as read-only history but cannot resume.
+It is **active** while it can accept Turns; its warm harness process is spawned
+on the first Turn and kept across widget/socket close. A server restart makes
+an active Conversation cold, but it can resume its prior session; only an
+explicit end or idle timeout makes it **ended** and read-only.
 _Avoid_: chat (as the noun), session (ACP-overloaded), thread
 
 **Turn**:
@@ -380,6 +404,20 @@ Directory. Persistent rules are a deliberate opt-in ("Always allow in
 per-Conversation (native ACP `allow_always`, which dies with the
 Conversation and writes no rule).
 _Avoid_: allowlist, policy
+
+**Slash Command**:
+A command the operator invokes from a Conversation's Composer by typing the
+Harness's command prefix (`commandPrefix`, `/` today) at a whitespace boundary —
+the start of the message or after a space — e.g. `/grill-with-docs`. The set is
+**not** Harmonic's: each Harness advertises its own over ACP
+(`available_commands_update`, name + description), so available commands are
+**per-Harness and session-sourced** — unknown until the Harness's Session is
+live (the Composer eagerly spawns it to learn them), absent for a Harness that
+advertises none. The Composer offers them as **autocomplete**: the prefix token
+opens a picker above the field, filtered as the operator types; selecting one
+inserts `{prefix}{name} ` ready for arguments and never sends on its own. The raw
+text is forwarded to the Harness unchanged; Harmonic parses nothing.
+_Avoid_: command (bare — collides with Verification Command), skill, macro
 
 ### Lifecycle
 
@@ -815,6 +853,75 @@ load reaches the CPU core count (more runnable work than cores); saturation
 tints the header readout and is edge-logged with hysteresis.
 _Avoid_: system load, host metrics
 
+### Updates
+
+**Distribution Mode**:
+How this instance was installed, which decides whether it can self-upgrade —
+**packaged** (a global npm install of `@mintopia/harmonic`, upgradable in place)
+or **source** (a git checkout, developer or self-hosted, not upgradable by
+Harmonic itself). Detected at boot from whether a `.git` directory sits at the
+app root. Only *packaged* mode runs the Update Check and shows the Update Banner;
+*source* mode suppresses both, since Harmonic cannot cleanly upgrade a checkout.
+_Avoid_: install type, dev mode, environment
+
+**Managed Mode**:
+How Harmonic's *process* is kept alive — **standalone** (a human ran `harmonic
+serve`/`start`; Harmonic owns its own daemon lifecycle and self-restarts on
+upgrade via the relauncher) or **supervised** (an OS service manager owns the
+process). Detected from the `HARMONIC_MANAGED_BY` env the service unit sets.
+Under a **systemd** supervisor an upgrade hands the restart to the supervisor —
+install the new version, exit, and `Restart=always` reboots it — instead of
+spawning the relauncher; under init.d and standalone the relauncher performs the
+restart. Orthogonal to Distribution Mode, which decides *whether* self-upgrade
+can happen at all. (ADR-0034, ADR-0030.)
+_Avoid_: daemon mode, service mode (a Service install is one way to reach
+supervised mode, not the mode itself)
+
+**Service install**:
+Installing Harmonic as an OS-managed service so it starts on boot and is
+controlled through the host's service manager. `harmonic install` auto-detects
+the backend — a **systemd** unit (a system unit when run as root, a user unit
+with linger otherwise) or a **SysV init.d** script registered with `update-rc.d`
+(the mechanism on init.d hosts, run at provision time as root, executing Harmonic
+as a non-root `--user`) — falling back to the self-managed daemon plus a printed
+boot snippet where no service manager fits. `harmonic uninstall` removes the
+service and **never** touches the data dir. Linux only; the seam errors clearly
+elsewhere. (ADR-0034.)
+_Avoid_: daemon install, systemd install (systemd is one backend of several)
+
+**Update Check**:
+A Scheduled Job that asks the npm registry whether a newer Harmonic is published
+— the `@mintopia/harmonic` package's `latest` dist-tag, compared by semver
+against the running version and offered only when strictly greater. Stable
+releases only; pre-release tags are ignored. Runs on boot and hourly. Present
+only in *packaged* Distribution Mode.
+_Avoid_: version poll, upgrade poll
+
+**Update Banner**:
+The instance-global notice at the top of every board announcing an available
+update. **Three states**: *available* (Upgrade / Dismiss), *armed* (the operator
+chose to upgrade — shows that it will restart once the instance is idle, with
+Cancel), and *upgrading* (the swap is under way). **Dismiss is per-version** — a
+newer published version re-raises it; there is no permanent silence. Dismiss and
+arm are instance-wide, never per-Workspace.
+_Avoid_: update toast, banner notification (a Notification Channel is a different
+thing)
+
+**Armed Upgrade**:
+An operator-confirmed upgrade, pinned to the exact offered version, waiting to
+fire until the instance is **idle**. Arming turns the Auto-Runner **master
+switch off** (no new pickups) and blocks manual launches, so in-flight work
+drains toward idle. **Idle** means zero running Attempts (Task and Epic), no
+in-flight Operation (merge / integrate), and no Conversation mid-turn — a live
+Conversation is **never force-killed**; the upgrade waits for a between-turns gap
+and shows a "waiting for agent before updating" notice. The armed intent and its
+target version are **persisted**, so a crash before it fires does not lose it.
+**Cancel** un-arms, clears the intent, and restores the master switch to its
+pre-arm value. When idle is reached the instance restarts onto the new version
+with all on-disk data — the DB and worktrees — preserved.
+_Avoid_: pending update, scheduled upgrade, auto-upgrade (it is always
+operator-initiated, never silent)
+
 ### Interfaces
 
 **Activity**:
@@ -839,6 +946,30 @@ and mirrored alike. Active-state Tasks by default, terminal ones behind a
 toggle; Tasks sharing a Map are positioned together, not boxed. A node
 deep-links to its Task; edits happen in Task detail, never on the graph.
 _Avoid_: DAG view, tree, board graph
+
+**Files**:
+A workspace-scoped view (rail label **Files**) for browsing and editing the
+active Workspace's Working Directory — a directory tree with git status colouring
+on the left, a tabbed CodeMirror editor on the right, image/audio previews, and
+download for binaries. Reads and writes are confined to the Working Directory
+(traversal and symlink escape rejected, operator-only). Carries basic git —
+stage, unstage, discard, commit — through the Source-Control Panel; never push,
+pull, or merge (ADR-0032).
+_Avoid_: IDE, editor, code browser, explorer
+
+**Excluded Directory**:
+A directory the Files tree shows but does not descend into or watch — seeded with
+`node_modules`, `.git`, and build dirs, shown *greyed* rather than hidden, and
+toggled include/exclude per directory. The exclude list is a per-Workspace
+Setting Override (ADR-0032, ADR-0022). Distinct from git-ignore, which the repo
+owns.
+_Avoid_: ignored, hidden, gitignored
+
+**Source-Control Panel**:
+The Files view's git surface — staged and unstaged groups plus a commit-message
+box — driving stage/unstage/discard/commit against the Working Directory's repo.
+The tree shows status colour; the panel drives the actions (ADR-0032).
+_Avoid_: git panel, SCM, changes view
 
 **Notification Channel**:
 A configured destination — Discord webhook, Slack webhook, Generic webhook,

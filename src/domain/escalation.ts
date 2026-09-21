@@ -5,7 +5,6 @@ import type { TaskService } from './tasks.js';
 import type { MergeEffectExec } from './merge.js';
 import type { AttemptSettleCoordinator } from './attempt-settle.js';
 import { withTaskLock } from './task-lock.js';
-import type { VerificationDecision } from '../verification/combine.js';
 
 /**
  * The merge side effects Accept must apply for this Task/Attempt — a worktree
@@ -23,19 +22,16 @@ export interface EscalationHooks {
   cleanup: (task: TaskRow, run: AttemptRow | undefined) => Promise<void>;
   /** The candidate commit an Accept would merge, or null when the branch has no commits ahead of its base. */
   candidateHead: (task: TaskRow, run: AttemptRow) => Promise<string | null>;
-  /** Run the configured verifiers against the candidate and fold their verdicts into one Verification decision. */
-  verifyCandidate: (task: TaskRow, run: AttemptRow, head: string) => Promise<VerificationDecision>;
 }
 
 /**
- * The one human surface: an `escalated` ticket exposes exactly three actions.
- * Accept verifies the ticket's candidate — a pass merges it as-is and settles
- * the Attempt under `operator-accept`; a non-`proceed` verify re-enters the
- * Attempt loop with the verifier's reason as feedback, like Reject;
- * `{ force: true }` skips verification. Reject with guidance records the
- * guidance as feedback, resets the attempt budget, and requeues the ticket to
- * `ready`. Close cancels the ticket and cleans up. Nothing else moves a ticket
- * out of `escalated`.
+ * The one human surface: an `escalated` ticket exposes three actions. Accept is
+ * the operator's judgement that the work is done — it merges the candidate as-is
+ * and settles the Attempt under `operator-accept`, with no verification. Reject
+ * optionally records guidance as feedback, resets the attempt budget, and
+ * requeues the ticket to `ready` (or starts the next Attempt immediately).
+ * Close cancels the ticket and cleans up. Nothing else moves a ticket out of
+ * `escalated`.
  */
 export class EscalationService {
   constructor(
@@ -55,28 +51,19 @@ export class EscalationService {
   }
 
   /**
-   * Accept an escalated ticket: verify the candidate, then merge as-is on a
-   * pass; a non-`proceed` decision re-enters the Attempt loop with the
-   * verifier's reason as feedback (the ticket is NOT merged). `force` skips
-   * verification entirely.
+   * Accept an escalated ticket: the operator has judged the work done, so merge
+   * the candidate as-is and settle the Attempt under `operator-accept`. No
+   * verification runs — the human Accept is the gate.
    */
-  async accept(taskId: number, opts?: { force?: boolean }): Promise<TaskRow> {
-    // Hold the Task across the whole verify→merge→settle span (ADR-0020): a slow
-    // conflict-resolving merge must not let a racing verify/requeue transition
-    // the Task underneath it and strand a merged branch behind an open ticket.
+  async accept(taskId: number): Promise<TaskRow> {
+    // Hold the Task across the whole merge→settle span (ADR-0020): a slow
+    // conflict-resolving merge must not let a racing requeue transition the
+    // Task underneath it and strand a merged branch behind an open ticket.
     return withTaskLock(taskId, async () => {
       const { task, run } = await this.escalated(taskId);
       const head = run ? await this.hooks.candidateHead(task, run) : null;
       if (!run || !head) {
         throw new DomainError('conflict', `task ${taskId} has no candidate to accept; the branch has no commits ahead of its base`);
-      }
-      if (!opts?.force) {
-        const decision = await this.hooks.verifyCandidate(task, run, head);
-        if (decision.outcome !== 'proceed') {
-          const feedback = `Operator Accept ran verification and it did not pass (${decision.outcome}): ${decision.reason}`;
-          await this.hooks.resume(task, feedback, false);
-          return await this.taskService.get(taskId);
-        }
       }
       await this.attempts.update(run.id, { verifiedHeadOid: head });
       const merged = await this.attempts.get(run.id);
@@ -97,7 +84,6 @@ export class EscalationService {
 
   async reject(taskId: number, guidance: string, startNow = false): Promise<TaskRow> {
     const trimmed = guidance.trim();
-    if (!trimmed) throw new DomainError('validation', 'guidance is required to reject an escalated task');
     const { task } = await this.escalated(taskId);
     await this.hooks.resume(task, trimmed, startNow);
     return await this.taskService.get(taskId);

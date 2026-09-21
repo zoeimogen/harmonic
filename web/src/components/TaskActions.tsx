@@ -1,50 +1,48 @@
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../api';
-import type { Task, VerificationAttempt } from '../types';
+import type { Task } from '../types';
 import { escalationActions, taskActions, type TaskAction } from '../task-actions-model';
 import { btnAccept, btnGhost, btnQuiet, btnQuietDestructive, btnReject } from '../ui';
 import { toastError, toastSuccess } from '../toast';
-import { overallDecision } from '../verification-attempts-model';
 import { RejectDialog } from './RejectDialog';
+import { ResumeDialog } from './ResumeDialog';
+import { ExtendGuardrailDialog } from './ExtendGuardrailDialog';
 import { DeleteTaskDialog } from './DeleteTaskDialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { taskLabel } from '../id-format.js';
 
-type Confirming = 'cancel' | 'complete' | 'accept-flagged' | 'force-accept' | 'close';
+type Confirming = 'cancel' | 'complete' | 'close';
 
 export function TaskActions({
   task,
   variant,
-  verificationAttempts,
   onEdit,
   onChanged,
 }: {
   task: Task;
   variant: 'card' | 'footer';
-  verificationAttempts?: VerificationAttempt[];
   onEdit: (task: Task) => void;
   onChanged: () => void;
 }) {
   const [rejecting, setRejecting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState<Confirming | null>(null);
-  // Accept runs verification + merge synchronously in the request; without an
-  // immediate pending state the click looks inert until it resolves.
+  // Accept merges synchronously in the request; without an immediate pending
+  // state the click looks inert until it resolves.
   const [accepting, setAccepting] = useState(false);
   const [pausing, setPausing] = useState(false);
-  const [resuming, setResuming] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [extendOpen, setExtendOpen] = useState(false);
 
   const actions = taskActions(task.state);
   const escalation = escalationActions(task);
-  // A merge in flight (Accept) is persisted on the Task, not just in this
+  // An Accept in flight (merging) is persisted on the Task, not just in this
   // component's `accepting` flag — so the actions stay disabled across a reload
   // or a leave-and-return, never handing the operator a second Accept/Reject
-  // that would race the merge.
-  const merging = task.mergeStatus === 'merging';
+  // that would race it. `resolving-conflicts` is excluded: that merge stalled on
+  // a conflict and the operator may want to bail (Close).
+  const acceptInFlight = task.mergeStatus === 'merging';
   if (variant === 'footer' && actions.length === 0) return null;
-
-  const decision =
-    verificationAttempts && verificationAttempts.length > 0 ? overallDecision(verificationAttempts) : null;
 
   const secondary = variant === 'card' ? btnQuiet : btnGhost;
   const act = (fn: () => Promise<unknown>) => () => fn().then(onChanged, toastError);
@@ -54,15 +52,13 @@ export function TaskActions({
       onChanged();
     }, toastError);
 
-  const acceptWith = (opts?: { force?: boolean }, done?: string) => () => {
+  const onAccept = () => {
     setAccepting(true);
-    api.acceptTask(task.id, opts).then(() => {
-      toastSuccess(done!, { sticky: true });
+    api.acceptTask(task.id).then(() => {
+      toastSuccess(`${taskLabel(task.id)} accepted — merging`, { sticky: true });
       onChanged();
     }, toastError).finally(() => setAccepting(false));
   };
-  const onAccept = acceptWith(undefined, `${taskLabel(task.id)} accepted — merging`);
-  const onForceAccept = acceptWith({ force: true }, `${taskLabel(task.id)} force-accepted — merging`);
   const onComplete = act(() => api.completeTask(task.id));
   const onPause = () => {
     setPausing(true);
@@ -71,16 +67,8 @@ export function TaskActions({
       onChanged();
     }, toastError).finally(() => setPausing(false));
   };
-  const onResume = () => {
-    setResuming(true);
-    api.resumeTask(task.id).then(() => {
-      toastSuccess(`${taskLabel(task.id)} resumed`);
-      onChanged();
-    }, toastError).finally(() => setResuming(false));
-  };
   const onCancelTask = actDone(() => api.cancelTask(task.id), `${taskLabel(task.id)} cancelled`);
   const onCloseTask = actDone(() => api.closeTask(task.id), `${taskLabel(task.id)} closed`);
-
   const confirmThen = (fn: () => void) => () => {
     setConfirming(null);
     fn();
@@ -98,34 +86,15 @@ export function TaskActions({
           );
         }
         return (
-          <Fragment key={action}>
-            {decision && decision.outcome !== 'proceed' ? (
-              <button
-                className={btnAccept}
-                onClick={() => setConfirming('accept-flagged')}
-                disabled={accepting || merging}
-              >
-                {accepting || merging ? 'Accepting…' : label}
-              </button>
-            ) : (
-              <button className={btnAccept} onClick={onAccept} disabled={accepting || merging}>
-                {accepting || merging ? 'Accepting…' : label}
-              </button>
-            )}
-            <button
-              className={secondary}
-              onClick={() => setConfirming('force-accept')}
-              disabled={accepting || merging}
-            >
-              {accepting || merging ? 'Accepting…' : 'Force accept'}
-            </button>
-          </Fragment>
+          <button key={action} className={btnAccept} onClick={onAccept} disabled={accepting || acceptInFlight}>
+            {accepting || acceptInFlight ? 'Accepting…' : label}
+          </button>
         );
       }
       case 'reject':
         return (
-          <button key={action} className={btnReject} disabled={merging} onClick={() => setRejecting(true)}>
-            {variant === 'footer' ? 'Reject with guidance…' : 'Reject'}
+          <button key={action} className={btnReject} disabled={acceptInFlight} onClick={() => setRejecting(true)}>
+            {variant === 'footer' ? 'Reject…' : 'Reject'}
           </button>
         );
       case 'close':
@@ -133,7 +102,7 @@ export function TaskActions({
           <button
             key={action}
             className={btnQuietDestructive}
-            disabled={merging}
+            disabled={acceptInFlight}
             onClick={() => setConfirming('close')}
           >
             {variant === 'footer' ? 'Close task' : 'Close'}
@@ -169,10 +138,16 @@ export function TaskActions({
             {pausing ? 'Pausing…' : 'Pause'}
           </button>
         );
+      case 'extend':
+        return (
+          <button key={action} className={secondary} onClick={() => setExtendOpen(true)}>
+            Extend time
+          </button>
+        );
       case 'resume':
         return (
-          <button key={action} className={secondary} disabled={resuming} onClick={onResume}>
-            {resuming ? 'Resuming…' : 'Resume'}
+          <button key={action} className={secondary} onClick={() => setResumeOpen(true)}>
+            Resume
           </button>
         );
       case 'cancel':
@@ -189,7 +164,7 @@ export function TaskActions({
         );
       case 'delete':
         return (
-          <button key={action} className={btnQuietDestructive} disabled={merging} onClick={() => setDeleting(true)}>
+          <button key={action} className={btnQuietDestructive} disabled={acceptInFlight} onClick={() => setDeleting(true)}>
             Delete
           </button>
         );
@@ -218,6 +193,20 @@ export function TaskActions({
           onDone={done(() => setRejecting(false))}
         />
       )}
+      {resumeOpen && (
+        <ResumeDialog
+          taskId={task.id}
+          onClose={() => setResumeOpen(false)}
+          onDone={done(() => setResumeOpen(false))}
+        />
+      )}
+      {extendOpen && (
+        <ExtendGuardrailDialog
+          taskId={task.id}
+          onClose={() => setExtendOpen(false)}
+          onDone={done(() => setExtendOpen(false))}
+        />
+      )}
       {deleting && (
         <DeleteTaskDialog task={task} onClose={() => setDeleting(false)} onDone={done(() => setDeleting(false))} />
       )}
@@ -243,31 +232,6 @@ export function TaskActions({
           onConfirm={confirmThen(onComplete)}
         >
           Marks the task done without running verification.
-        </ConfirmDialog>
-      )}
-      {confirming === 'accept-flagged' && (
-        <ConfirmDialog
-          label={`Accept ${taskLabel(task.id)}`}
-          title="Critic flagged this attempt"
-          confirmLabel="Accept anyway"
-          tone="review"
-          onCancel={() => setConfirming(null)}
-          onConfirm={confirmThen(onAccept)}
-        >
-          The critic did not recommend merging this candidate. Accept and merge anyway?
-        </ConfirmDialog>
-      )}
-      {confirming === 'force-accept' && (
-        <ConfirmDialog
-          label={`Force accept ${taskLabel(task.id)}`}
-          title="Skip verification and merge?"
-          confirmLabel="Skip verification & merge"
-          tone="danger"
-          onCancel={() => setConfirming(null)}
-          onConfirm={confirmThen(onForceAccept)}
-        >
-          This merges the candidate branch without running verification — implementation, tests, and the critic
-          review are all skipped. Use only when you've reviewed the change yourself.
         </ConfirmDialog>
       )}
       {confirming === 'close' && (

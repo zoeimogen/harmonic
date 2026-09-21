@@ -3,13 +3,16 @@ import type { JSX } from 'react';
 export type IconName =
   | 'board'
   | 'activity'
+  | 'conversations'
   | 'operations'
   | 'table'
   | 'graph'
   | 'stats'
+  | 'timeline'
   | 'api'
   | 'settings'
   | 'workspace'
+  | 'files'
   | 'logout'
   | 'chevrons-left'
   | 'chevron-down'
@@ -18,8 +21,10 @@ export type IconName =
   | 'circle-half'
   | 'check'
   | 'close'
+  | 'menu'
   | 'chat'
   | 'send'
+  | 'stop'
   | 'arrow-left'
   | 'edit'
   | 'plus'
@@ -30,7 +35,20 @@ export type IconName =
   | 'alert-triangle'
   | 'user'
   | 'help'
-  | 'copy';
+  | 'search'
+  | 'trash'
+  | 'copy'
+  | 'file'
+  | 'file-plus'
+  | 'folder-plus'
+  | 'save'
+  | 'eye'
+  | 'undo'
+  | 'github'
+  | 'book'
+  | 'globe'
+  | 'arrow-up-right'
+  | 'download';
 
 const PATHS: Record<IconName, JSX.Element> = {
   board: (
@@ -41,6 +59,7 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   activity: <path d="M1.5 8h3l1.75-4 2.5 8 1.75-4H14.5" />,
+  conversations: <path d="M2.5 3.5h11a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8l-3 2.5v-2.5H2.5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z" />,
   operations: (
     <>
       <circle cx="4" cy="4" r="1.5" />
@@ -64,6 +83,7 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   stats: <path d="M4.5 13.5V9M8 13.5V3.5M11.5 13.5V7" />,
+  timeline: <path d="M2.25 4.5h5.5M5 8h7M3.5 11.5h4.5" />,
   api: <path d="M6 4.5 2.5 8l3.5 3.5M10 4.5 13.5 8l-3.5 3.5" />,
   settings: (
     <path d="M9.8 4.2a0.7 0.7 0 0 0 0 0.95l1.05 1.05a0.7 0.7 0 0 0 0.95 0l2.5-2.5a4 4 0 0 1-5.3 5.3l-4.6 4.6a1.4 1.4 0 0 1-2-2l4.6-4.6a4 4 0 0 1 5.3-5.3z" />
@@ -74,12 +94,66 @@ const PATHS: Record<IconName, JSX.Element> = {
       <circle cx="8" cy="8" r="2" />
     </>
   ),
+  files: <path d="M2.5 3.25h4l1.2 1.5h5.8v8H2.5zM2.5 6.25h11" />,
+  file: (
+    <>
+      <path d="M4.25 2.75h4.25l3 3v7a.5.5 0 0 1-.5.5H4.25a.5.5 0 0 1-.5-.5V3.25a.5.5 0 0 1 .5-.5z" />
+      <path d="M8.25 2.75V6h3.25" />
+    </>
+  ),
+  'file-plus': (
+    <>
+      <path d="M4.25 2.75h4.25l3 3v7a.5.5 0 0 1-.5.5H4.25a.5.5 0 0 1-.5-.5V3.25a.5.5 0 0 1 .5-.5z" />
+      <path d="M8.25 2.75V6h3.25M7.75 8.25v3.5M6 10h3.5" />
+    </>
+  ),
+  'folder-plus': (
+    <>
+      <path d="M2.5 3.25h4l1.2 1.5h5.8v8H2.5z" />
+      <path d="M8 7.75v3M6.5 9.25h3" />
+    </>
+  ),
+  save: (
+    <>
+      <path d="M3.5 3.25h6.9L12.75 5.6v7.15a.5.5 0 0 1-.5.5H3.75a.5.5 0 0 1-.5-.5V3.75a.5.5 0 0 1 .5-.5z" />
+      <path d="M5.5 3.25v2.5h4.25v-2.5M5 9.25h6v4H5z" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M1.75 8s2.25-4 6.25-4 6.25 4 6.25 4-2.25 4-6.25 4-6.25-4-6.25-4z" />
+      <circle cx="8" cy="8" r="1.75" />
+    </>
+  ),
+  undo: (
+    <>
+      <path d="M6.5 3.5 3 7l3.5 3.5" />
+      <path d="M3 7h6.25a3.25 3.25 0 0 1 0 6.5H6" />
+    </>
+  ),
   logout: (
     <>
       <path d="M6.5 13.5h-3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3" />
       <path d="M10.5 5.5 13 8l-2.5 2.5M13 8H6" />
     </>
   ),
+  github: (
+    <path d="M6 13.4c-2.9.85-2.9-1.45-4-1.75m8 3v-2.35a2 2 0 0 0-.55-1.55c1.85-.2 3.8-.9 3.8-4.1a3.2 3.2 0 0 0-.9-2.2 2.95 2.95 0 0 0-.05-2.25s-.75-.2-2.45.9a8.4 8.4 0 0 0-4.3 0c-1.7-1.1-2.45-.9-2.45-.9a2.95 2.95 0 0 0-.05 2.25 3.2 3.2 0 0 0-.9 2.2c0 3.2 1.95 3.9 3.8 4.1a2 2 0 0 0-.55 1.55V15.4" />
+  ),
+  book: (
+    <>
+      <path d="M2.5 3.25h4.25a1.5 1.5 0 0 1 1.25.7 1.5 1.5 0 0 1 1.25-.7h4.25v9h-4.5a1 1 0 0 0-1 .75 1 1 0 0 0-1-.75h-4.5z" />
+      <path d="M8 3.95v8.55" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M2.4 8h11.2M8 2.25c1.6 1.55 2.5 3.6 2.5 5.75S9.6 12.2 8 13.75c-1.6-1.55-2.5-3.6-2.5-5.75S6.4 3.8 8 2.25z" />
+    </>
+  ),
+  'arrow-up-right': <path d="M5 11l6-6M6 5h5v5" />,
+  download: <path d="M8 2.75v7.5M4.75 7 8 10.25 11.25 7M3.5 13.25h9" />,
   'chevrons-left': <path d="M8 4.5 4.5 8 8 11.5M12 4.5 8.5 8l3.5 3.5" />,
   'chevron-down': <path d="M4.5 6.25 8 9.75l3.5-3.5" />,
   sun: (
@@ -103,8 +177,10 @@ const PATHS: Record<IconName, JSX.Element> = {
   ),
   check: <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />,
   close: <path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5" />,
+  menu: <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />,
   chat: <path d="M2.5 3.5h11a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H8l-3 2.5v-2.5H2.5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1Z" />,
   send: <path d="M2.5 8 13.5 2.5 9.5 13.5 7.5 9 2.5 8Z" />,
+  stop: <rect fill="currentColor" height="8" rx="1.5" stroke="none" width="8" x="4" y="4" />,
   'arrow-left': <path d="M12.5 8h-9M7 3.5 2.5 8 7 12.5" />,
   edit: (
     <>
@@ -161,6 +237,20 @@ const PATHS: Record<IconName, JSX.Element> = {
       <circle cx="8" cy="8" r="6.25" />
       <path d="M5.9 6.1a2.1 2.1 0 1 1 3.15 1.82c-.7.42-1.05.86-1.05 1.68" />
       <path d="M8 11.75v.01" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="6.75" cy="6.75" r="4.25" />
+      <path d="M13.5 13.5 10 10" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M2.75 4.25h10.5" />
+      <path d="M6.25 4.25V2.75h3.5v1.5" />
+      <path d="M3.9 4.25 4.6 13a1 1 0 0 0 1 .92h4.8a1 1 0 0 0 1-.92l.7-8.75" />
+      <path d="M6.75 7v4M9.25 7v4" />
     </>
   ),
 };

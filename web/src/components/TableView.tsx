@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatCost } from '../cost';
-import type { Task } from '../types';
+import type { Task, Workspace } from '../types';
 import { TASK_STATES } from '../types';
 import { TABLE_HARNESSES, TABLE_PRIORITIES, type TableFilters, type SortKey } from '../router-model';
 import {
@@ -8,8 +8,6 @@ import {
   btnPrimary,
   btnQuiet,
   chip,
-  displayTitle,
-  labelType,
   searchField,
   stateChip,
   stateDot,
@@ -18,31 +16,38 @@ import {
   touchOverlay,
 } from '../ui';
 import { toastError } from '../toast';
+import { PageHeader } from './PageHeader';
 import { fetchTasks, TABLE_PAGE_SIZE } from '../table-model';
+import { excludeEpicDrivers, type Epic } from '../epic-model';
 import { issueRef, ticketRowId } from '../id-format.js';
 import { EmptyState } from './EmptyState';
 import { FilterSelect } from './FilterSelect';
 import { ModelLabel, ProviderChip, TaskIdentity } from './TaskIdentity';
+import { WorkspaceBadge } from './WorkspaceSwitcher';
 
 /** The dropped header + row cells hide together (`hidden md:*`/`hidden lg:*`) so
  * the DOM cell count always matches the active track count and the ARIA grid
  * stays valid at every width. */
 const GRID =
-  'grid grid-cols-[7.5rem_minmax(0,1fr)_8rem] md:grid-cols-[7.5rem_minmax(0,1fr)_8rem_5rem_5.5rem] lg:grid-cols-[7.5rem_minmax(0,1fr)_8rem_6rem_9rem_5rem_5.5rem_8rem_8rem] items-center gap-x-3 px-4';
+  'grid grid-cols-[1fr_auto] gap-y-1 md:grid-cols-[7.5rem_minmax(0,1fr)_8rem_5rem_5.5rem] md:gap-y-0 lg:grid-cols-[7.5rem_minmax(0,1fr)_8rem_6rem_9rem_5rem_5.5rem_8rem_8rem] items-center gap-x-3 px-4';
 
 const fmtTime = (ms: number) =>
   new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 export function TableView({
   workspaceId,
+  workspaces,
+  epics,
   onOpen,
   onOpenEpic,
   filters,
   onFiltersChange,
   onNewTask,
 }: {
-  /** Scopes the table to the active Workspace; no fetch until resolved. */
+  /** A null Workspace displays tasks from every Workspace. */
   workspaceId: number | null;
+  workspaces: Workspace[];
+  epics: Epic[];
   onOpen: (task: Task) => void;
   /** Opens the Board focused on an epic's summary panel, keyed by tracker ref. */
   onOpenEpic: (ref: number) => void;
@@ -71,10 +76,9 @@ export function TableView({
   }, [workspaceId, stateKey, harnessKey, priorityKey, sortBy, order, debouncedSearch]);
 
   useEffect(() => {
-    if (workspaceId === null) return;
     setLoading(true);
     fetchTasks({
-      workspaceId,
+      ...(workspaceId === null ? {} : { workspaceId }),
       state,
       harness,
       priority,
@@ -85,13 +89,13 @@ export function TableView({
       offset: (page - 1) * TABLE_PAGE_SIZE,
     })
       .then(({ tasks, total }) => {
-        setTasks(tasks);
+        setTasks(excludeEpicDrivers(tasks, epics));
         setTotal(total);
       })
       .catch(toastError)
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- filter arrays are tracked via their joined keys so a new reference alone can't refetch
-  }, [workspaceId, stateKey, harnessKey, priorityKey, debouncedSearch, sortBy, order, page]);
+  }, [workspaceId, stateKey, harnessKey, priorityKey, debouncedSearch, sortBy, order, page, epics]);
 
   const pageCount = Math.max(1, Math.ceil(total / TABLE_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -122,24 +126,27 @@ export function TableView({
     </span>
   );
 
-  const renderRow = (task: Task) => (
-    <div
+  const renderRow = (task: Task) => {
+    const workspace = workspaceId === null ? workspaces.find((item) => item.id === task.workspaceId) : undefined;
+    return (
+      <div
       key={task.id}
       role="row"
-      className={`${GRID} min-h-11 cursor-pointer py-2 transition-colors duration-150 hover:bg-raised/50`}
+      className={`${GRID} min-h-11 cursor-pointer py-2 transition-colors duration-150 hover:bg-raised/50 max-md:py-3`}
       onClick={() => onOpen(task)}
     >
-      <div role="cell" className="flex items-center justify-end gap-1.5 whitespace-nowrap tabular-nums text-muted">
+      <div role="cell" className="flex items-center justify-end gap-1.5 whitespace-nowrap tabular-nums text-muted max-md:col-start-1 max-md:row-start-1 max-md:justify-start">
         <span aria-hidden="true" className={stateDot(task.state)} />
+        {workspace && <WorkspaceBadge workspace={workspace} label={`Workspace: ${workspace.name}`} />}
         <span className="sr-only">Id: </span>
         {ticketRowId(task.id, task.trackerRef)}
       </div>
-      <div role="cell" className="flex min-w-0 items-center gap-2 pr-2">
+      <div role="cell" className="flex min-w-0 items-center gap-2 pr-2 max-md:col-span-2 max-md:row-start-2 max-md:pr-0">
         <div className="min-w-0 flex-1">
           <button
             type="button"
             title={task.summary}
-            className="block w-full cursor-pointer truncate text-left text-ink"
+            className="block w-full cursor-pointer truncate text-left text-ink max-md:whitespace-normal max-md:overflow-visible max-md:font-medium"
             onClick={(e) => {
               e.stopPropagation();
               onOpen(task);
@@ -152,7 +159,7 @@ export function TableView({
           </div>
         </div>
       </div>
-      <div role="cell">
+      <div role="cell" className="max-md:col-start-2 max-md:row-start-1 max-md:justify-self-end">
         <span className={`${stateChip(task.state)} capitalize`}>{task.state}</span>
       </div>
       <div role="cell" className="hidden lg:block">
@@ -179,29 +186,30 @@ export function TableView({
         <span className="sr-only">Updated: </span>
         {fmtTime(task.updatedAt)}
       </div>
-    </div>
-  );
+      </div>
+    );
+  };
 
   const renderEpicRow = (task: Task) => (
     <div
       key={`epic-${task.trackerRef ?? task.id}`}
       role="row"
-      className={`${GRID} min-h-11 cursor-pointer py-2 transition-colors duration-150 hover:bg-raised/50`}
+      className={`${GRID} min-h-11 cursor-pointer py-2 transition-colors duration-150 hover:bg-raised/50 max-md:py-3`}
       onClick={() => onOpenEpic(task.trackerRef ?? task.id)}
     >
-      <div role="cell" className="flex items-center justify-end gap-1.5 whitespace-nowrap tabular-nums text-muted">
+      <div role="cell" className="flex items-center justify-end gap-1.5 whitespace-nowrap tabular-nums text-muted max-md:col-start-1 max-md:row-start-1 max-md:justify-start">
         <span className={`${chip} shrink-0 bg-accent-tint text-accent`}>
           <span className="sr-only">Epic: </span>epic
         </span>
         <span className="sr-only">Issue: </span>
         {issueRef(task.trackerRef ?? task.id)}
       </div>
-      <div role="cell" className="flex min-w-0 items-center gap-2 pr-2">
+      <div role="cell" className="flex min-w-0 items-center gap-2 pr-2 max-md:col-span-2 max-md:row-start-2 max-md:pr-0">
         <div className="min-w-0 flex-1">
           <button
             type="button"
             title={task.summary}
-            className="block w-full cursor-pointer truncate text-left text-ink"
+            className="block w-full cursor-pointer truncate text-left text-ink max-md:whitespace-normal max-md:overflow-visible max-md:font-medium"
             onClick={(e) => {
               e.stopPropagation();
               onOpenEpic(task.trackerRef ?? task.id);
@@ -211,7 +219,7 @@ export function TableView({
           </button>
         </div>
       </div>
-      <div role="cell" className="text-muted">
+      <div role="cell" className="text-muted max-md:col-start-2 max-md:row-start-1 max-md:justify-self-end">
         —
       </div>
       <div role="cell" className="hidden text-muted lg:block">
@@ -239,15 +247,19 @@ export function TableView({
 
   return (
     <div>
-      <h1 className="sr-only">Tasks</h1>
-      <div className="mb-4 flex flex-wrap items-baseline gap-2">
-        <span className="flex items-baseline gap-1.5">
-          <span className={`${displayTitle} tabular-nums ${total > 0 || loading ? '' : 'text-faint'}`}>
-            {loading ? '…' : total}
+      <PageHeader
+        title="Tasks"
+        description={workspaceId === null ? 'Every task across all workspaces, filterable and searchable' : 'Every task in this workspace, filterable and searchable'}
+        actions={
+          <span className="flex items-baseline gap-1.5 text-small">
+            <span className={`tabular-nums ${total > 0 || loading ? 'text-ink' : 'text-faint'}`}>
+              {loading ? '…' : total}
+            </span>
+            <span className="text-muted">tasks</span>
           </span>
-          <span className={`${labelType} text-muted`}>tasks</span>
-        </span>
-        <div className="flex-1" />
+        }
+      />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <input
           type="search"
           aria-label="Search prompts"
@@ -292,7 +304,7 @@ export function TableView({
         )}
 
         <div role="rowgroup">
-          <div role="row" className={`${GRID} ${tableHeadRow}`}>
+          <div role="row" className={`${GRID} ${tableHeadRow} max-md:hidden`}>
             <span role="columnheader" className="text-right">
               #
             </span>

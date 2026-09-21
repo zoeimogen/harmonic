@@ -112,7 +112,8 @@ export function createAcpCriticDrive(): CriticHarnessDrive {
       const kill = (): void => {
         try {
           if (child.exitCode === null && !child.killed) child.kill('SIGKILL');
-        } catch {
+        } catch (err) {
+          logger.debug('critic: failed to kill drive child process', { harness: req.harnessId, error: err instanceof Error ? err.message : String(err) });
         }
       };
 
@@ -138,7 +139,7 @@ export function createAcpCriticDrive(): CriticHarnessDrive {
         }
         if (initialize && sessionId !== req.continueSessionId) await req.onSessionCreated?.(sessionId, initialize);
 
-        const mode = adapterFor(req.harnessId).unattendedPermissionMode(driver.availableModes);
+        const mode = adapterFor(req.harnessId).unattendedPermissionMode(driver.availableModes, req.harness.permissionMode);
         if (mode) {
           await Promise.race([driver.setMode(mode), timeout]);
         }
@@ -264,7 +265,8 @@ async function runCriticUnchecked(args: RunCriticArgs): Promise<CriticAttempt> {
           sessionLogDir: args.harness.sessionLogDir,
           sessionId,
         })) ?? null;
-    } catch {
+    } catch (err) {
+      logger.debug('critic: failed to resolve transcript path', { harness: args.harnessId, sessionId, error: err instanceof Error ? err.message : String(err) });
       transcriptPath = null;
     }
   }

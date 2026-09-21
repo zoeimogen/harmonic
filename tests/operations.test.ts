@@ -13,7 +13,7 @@ import { AutoRunner } from '../src/execution/auto-runner.js';
 import { EventBus } from '../src/server/bus.js';
 import { initializeTelemetry, resolveTelemetryOptions } from '../src/telemetry.js';
 import { OperationRegistry, startOperation } from '../src/telemetry/operations.js';
-import { allWorkspaces, makeSettingsStore, seedLocalMarkdownTicket, startServer, stubHarness } from './helpers.js';
+import { allWorkspaces, makeSettingsStore, seedLocalMarkdownTicket, startServer, stubHarness, seedWorkspace } from './helpers.js';
 
 const providers: NodeTracerProvider[] = [];
 
@@ -189,6 +189,7 @@ describe('Auto-Runner operations (issue #289)', () => {
   it('marks a failed task start as an error and returns the Task to ready', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'harmonic-operation-auto-runner-failure-'));
     const db = await openAsyncDb(directory);
+    await seedWorkspace(db);
     const settingsStore = await makeSettingsStore(directory);
     const { exporter, registry } = installOperations();
     const config = { ...baselineConfig(), autoRunner: { enabled: true, maxConcurrentAttempts: 1 } };
@@ -231,6 +232,7 @@ describe('Auto-Runner operations (issue #289)', () => {
   it('starts no tick Operation for an idle pass that attempts no Task', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'harmonic-operation-auto-runner-idle-'));
     const db = await openAsyncDb(directory);
+    await seedWorkspace(db);
     const settingsStore = await makeSettingsStore(directory);
     const { exporter, registry } = installOperations();
     const config = { ...baselineConfig(), autoRunner: { enabled: true, maxConcurrentAttempts: 1 } };
@@ -277,7 +279,7 @@ describe('Run operations (issue #290)', () => {
       const wsId = (await server.app.ctx.workspaces.list())[0]!.id;
       await server.app.ctx.workspaces.update(wsId, {
         workingDir: repo,
-        taskPreMergeCommands: [verificationCommandSchema.parse({ command: process.execPath, args: ['-e', 'process.exit(1)'], timeoutSeconds: 30 })],
+        taskPreMergeCommands: [{ kind: 'local', enabled: true, command: verificationCommandSchema.parse({ id: 'cmd-exit-1', command: process.execPath, args: ['-e', 'process.exit(1)'], timeoutSeconds: 30 }) }],
       });
       const task = await server.api('POST', '/api/tasks', {
         prompt: JSON.stringify({ writeFiles: { 'ops.txt': 'work\n' } }),
@@ -297,7 +299,7 @@ describe('Run operations (issue #290)', () => {
       expect(registry.list().find((operation) => operation.name === 'harmonic.attempt' && operation.attributes['attempt.id'] === attemptId)).toBeUndefined();
 
       await server.app.ctx.workspaces.update(wsId, {
-        taskPreMergeCommands: [verificationCommandSchema.parse({ command: process.execPath, args: ['-e', 'process.exit(0)'], timeoutSeconds: 30 })],
+        taskPreMergeCommands: [{ kind: 'local', enabled: true, command: verificationCommandSchema.parse({ id: 'cmd-exit-0', command: process.execPath, args: ['-e', 'process.exit(0)'], timeoutSeconds: 30 }) }],
       });
 
       const escalatedAttempt = await server.app.ctx.attempts.currentForTask(task.body.id);
@@ -336,7 +338,7 @@ describe('Automated merge policy operations (issue #387)', () => {
       const wsId = (await server.app.ctx.workspaces.list())[0]!.id;
       await server.app.ctx.workspaces.update(wsId, {
         workingDir: repo,
-        taskPreMergeCommands: [verificationCommandSchema.parse({ command: process.execPath, args: ['-e', 'process.exit(0)'], timeoutSeconds: 30 })],
+        taskPreMergeCommands: [{ kind: 'local', enabled: true, command: verificationCommandSchema.parse({ id: 'cmd-exit-0', command: process.execPath, args: ['-e', 'process.exit(0)'], timeoutSeconds: 30 }) }],
       });
       await server.app.ctx.settingsStore.updateGlobal({
         merge: { postMergeCheck: false },

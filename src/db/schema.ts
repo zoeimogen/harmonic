@@ -28,7 +28,7 @@ export const TASK_STATES = ['draft', 'ready', 'working', 'paused', 'escalated', 
 export type TaskState = (typeof TASK_STATES)[number];
 
 /** Transient merge indicator, orthogonal to `state`: `merging` while the candidate is being merged onto its base, `resolving-conflicts` once that merge hit conflicts a human must settle. Null at rest. */
-export const MERGE_STATUSES = ['merging', 'resolving-conflicts'] as const;
+export const MERGE_STATUSES = ['verifying', 'merging', 'resolving-conflicts'] as const;
 export type MergeStatus = (typeof MERGE_STATUSES)[number];
 
 /** A named Working Directory, unique by absolute path. Its setting overrides live in the YAML settings file, not here. */
@@ -36,6 +36,7 @@ export const workspaces = sqliteTable('workspaces', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   workingDir: text('working_dir').notNull(),
+  color: text('color').notNull().default('#FA6152'),
   trackerEnabled: integer('tracker_enabled', { mode: 'boolean' }).notNull().default(false),
   trackerPollIntervalSeconds: integer('tracker_poll_interval_seconds').notNull().default(60),
   createdAt: integer('created_at').notNull(),
@@ -47,6 +48,7 @@ export const workspaces = sqliteTable('workspaces', {
 export type WorkspaceIdentityRow = typeof workspaces.$inferSelect;
 /** Identity columns plus the setting overrides `WorkspaceService` composes in on read; `null` on an override field means inherit the global default. */
 export type WorkspaceRow = WorkspaceIdentityRow & {
+  excludedDirectories: string[];
   harness: string | null; model: string | null; chatHarness: string | null; chatModel: string | null;
   isolationMode: string | null; priority: string | null;
   conflictResolveTurns: number | null; maxConcurrentAttempts: number | null; autoRunnerEnabled: boolean | null;
@@ -283,6 +285,8 @@ export const attemptEvents = sqliteTable('attempt_events', {
 
 export const CONVERSATION_STATES = ['active', 'ended'] as const;
 export type ConversationState = (typeof CONVERSATION_STATES)[number];
+export const CONVERSATION_PERMISSION_MODES = ['ask', 'automatic'] as const;
+export type ConversationPermissionMode = (typeof CONVERSATION_PERMISSION_MODES)[number];
 
 /** An interactive, multi-turn exchange the operator drives with a Harness over ACP. Direct mode only; never queued or reviewed. */
 export const conversations = sqliteTable('conversations', {
@@ -294,6 +298,7 @@ export const conversations = sqliteTable('conversations', {
   workingDir: text('working_dir').notNull(),
   workspaceId: integer('workspace_id').references(() => workspaces.id),
   state: text('state').$type<ConversationState>().notNull(),
+  permissionMode: text('permission_mode').$type<ConversationPermissionMode>().notNull().default('ask'),
   /** The warm ACP session id, set once the harness spawns; null before the first Turn. */
   sessionId: text('session_id'),
   /** JSON: running Usage accumulated across Turns; null before any usage. */

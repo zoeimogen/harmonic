@@ -53,9 +53,35 @@ describe('harness-adapter', () => {
     it('OpenCode relies on its ACP permission defaults and generic ACP usage collection', () => {
       const adapter = adapterFor('opencode');
       expect(adapter).toMatchObject({ commandPrefix: '/', transcript: null, requiresUnattendedPermissionMode: false });
+      expect(adapter.permissionModes).toBeUndefined();
       expect(adapter.usage).not.toBeNull();
       expect(adapter.unattendedPermissionMode([])).toBeUndefined();
       expect(adapter.spawnEnv(spawnInput('meta/muse-spark-1.3-contributor'))).toEqual({});
+    });
+
+    it('resolves Claude unattended modes without ever falling back to ask', () => {
+      const adapter = adapterFor('claude');
+      expect(adapter.permissionModes).toEqual({ auto: 'Auto', bypassPermissions: 'Bypass Permissions' });
+      expect(adapter.defaultPermissionMode).toBe('auto');
+      expect(adapter.unattendedPermissionMode(['ask', 'auto', 'bypassPermissions'], 'bypassPermissions')).toBe('bypassPermissions');
+      expect(adapter.unattendedPermissionMode(['ask', 'auto', 'bypassPermissions'], 'unsupported')).toBe('auto');
+      expect(adapter.unattendedPermissionMode(['ask', 'bypassPermissions'])).toBe('bypassPermissions');
+      expect(adapter.unattendedPermissionMode(['ask'])).toBeUndefined();
+      expect(adapterFor('codex').permissionModes).toBeUndefined();
+    });
+
+    it('resolves Copilot Agent and Autopilot modes advertised over ACP', () => {
+      const agent = 'https://agentclientprotocol.com/protocol/session-modes#agent';
+      const plan = 'https://agentclientprotocol.com/protocol/session-modes#plan';
+      const autopilot = 'https://agentclientprotocol.com/protocol/session-modes#autopilot';
+      const adapter = adapterFor('copilot');
+
+      expect(adapter.permissionModes).toEqual({ [agent]: 'Agent', [plan]: 'Plan', [autopilot]: 'Autopilot' });
+      expect(adapter.defaultPermissionMode).toBe(agent);
+      expect(adapter.unattendedPermissionMode([agent, plan, autopilot], autopilot)).toBe(autopilot);
+      expect(adapter.unattendedPermissionMode([agent, plan, autopilot], 'unsupported')).toBe(agent);
+      expect(adapter.unattendedPermissionMode([plan, autopilot])).toBe(autopilot);
+      expect(adapter.unattendedPermissionMode([plan])).toBe(plan);
     });
 
     it('OpenCode discovers credentialed providers and their cached model metadata without ACP', async () => {
@@ -216,6 +242,21 @@ describe('harness-adapter', () => {
       expect(usage.modelsFromSessionLog(join(dir, 'missing.db'), root)).toEqual({});
       expect(usage.modelsFromSessionLog(file, null)).toEqual({});
       expect(usage.parse!({ sessionLogDir: dir, cwd: '/w', sessionId: 'missing' })).toBeNull();
+    });
+
+    it("OpenCode's contextTokens ignores the in-flight zero-token message and uses the last completed turn", () => {
+      const root = 'root-session';
+      const dir = mkdtempSync(join(tmpdir(), 'opencode-inflight-'));
+      const file = join(dir, '.local', 'share', 'opencode', 'opencode.db');
+      mkdirSync(join(dir, '.local', 'share', 'opencode'), { recursive: true });
+      // opencode inserts the streaming assistant message with all-zero tokens
+      // before the turn's usage lands; it is the last row mid-turn.
+      writeOpenCodeUsageDb(file, [{ id: root }], [
+        { session_id: root, providerID: 'openai', modelID: 'gpt-5.6', input: 1000, output: 100, cacheRead: 800, cacheWrite: 50 },
+        { session_id: root, providerID: 'openai', modelID: 'gpt-5.6', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      ]);
+      const parsed = adapterFor('opencode').usage!.parse!({ sessionLogDir: dir, cwd: '/w', sessionId: root })!;
+      expect(parsed.tree.contextTokens).toBe(1850);
     });
 
     it("OpenCode's Usage Collector ignores cycles in a corrupt Subagent session tree", () => {
@@ -588,6 +629,13 @@ describe('harness-adapter', () => {
       expect(usage.sessionLogFile({ sessionLogDir: '/logs', cwd: '/w', sessionId: null })).toBeNull();
     });
 
+    it("claude's Usage Collector rejects a sessionId that attempts path traversal (#649)", () => {
+      const usage = adapterFor('claude').usage!;
+      expect(usage.sessionLogFile({ sessionLogDir: '/logs', cwd: '/w', sessionId: '../../../../etc/passwd' })).toBeNull();
+      expect(usage.sessionLogFile({ sessionLogDir: '/logs', cwd: '/w', sessionId: 'a/b' })).toBeNull();
+      expect(usage.sessionLogFile({ sessionLogDir: '/logs', cwd: '/w', sessionId: '..' })).toBeNull();
+    });
+
     it('discovers Claude transcripts from the actual projects directory, without recreating the cwd slug', async () => {
       const root = mkdtempSync(join(tmpdir(), 'claude-projects-'));
       const actualDir = join(root, 'claude-chose-this-name');
@@ -599,6 +647,17 @@ describe('harness-adapter', () => {
         realpathSync(transcript),
       );
       await expect(adapterFor('claude').usage!.resolveTranscriptPath!({ sessionLogDir: root, sessionId: 'missing' })).resolves.toBeNull();
+    });
+
+    it('rejects a traversal attempt in the sessionId when resolving Claude transcripts (#649)', async () => {
+      const root = mkdtempSync(join(tmpdir(), 'claude-projects-traversal-'));
+      const actualDir = join(root, 'claude-chose-this-name');
+      mkdirSync(actualDir);
+
+      await expect(
+        adapterFor('claude').usage!.resolveTranscriptPath!({ sessionLogDir: root, sessionId: '../../../../etc/passwd' }),
+      ).resolves.toBeNull();
+      await expect(adapterFor('claude').usage!.resolveTranscriptPath!({ sessionLogDir: root, sessionId: 'a/b' })).resolves.toBeNull();
     });
   });
 
@@ -672,6 +731,15 @@ describe('harness-adapter', () => {
       const after = await reader.sample();
       expect(after!.usage.models['claude-haiku-4-5']).toMatchObject({ inputTokens: 5 });
       expect(after!.usage.models['claude-opus-4-8']).toBeUndefined();
+    });
+
+    it('rejects a traversal attempt in the sessionId instead of reading outside the session log dir (#649)', async () => {
+      const home = mkdtempSync(join(tmpdir(), 'claude-tail-traversal-'));
+      const malicious = adapterFor('claude').usage!.createTailReader!({ sessionLogDir: home, cwd: '/w', sessionId: '../../../../etc/passwd' });
+
+      expect(malicious.latest()).toBeNull();
+      await expect(malicious.sample()).resolves.toBeNull();
+      expect(malicious.latest()).toBeNull();
     });
 
     it('picks up a Subagent that appears after the first tick and rolls its tokens up', async () => {

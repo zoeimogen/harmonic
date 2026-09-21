@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { startServer, stubHarness, waitFor, connectFirehose, type TestServer } from './helpers.js';
 
@@ -93,7 +94,11 @@ describe('live structured run event streaming and replay', () => {
     await waitFor(async () =>
       ws.messages.some((m) => m.type === 'task_changed' && m.task.id === created.body.id),
     );
-    const msg = ws.messages.find((m) => m.type === 'task_changed' && m.task.id === created.body.id);
+    const rest = await server.api('GET', `/api/tasks/${created.body.id}`);
+    const msg = await waitFor(async () => {
+      const latest = ws.messages.findLast((m) => m.type === 'task_changed' && m.task.id === created.body.id);
+      return latest && isDeepStrictEqual(latest.task, rest.body) ? latest : undefined;
+    });
 
     expect(msg.task.dependsOn).toEqual([dep.body.id]);
     expect(msg.task.dependents).toEqual([]);
@@ -101,7 +106,6 @@ describe('live structured run event streaming and replay', () => {
     expect(msg.task.openBlockerCount).toBe(1);
     expect(msg.task.humanOnly).toBe(false);
 
-    const rest = await server.api('GET', `/api/tasks/${created.body.id}`);
     expect(msg.task).toEqual(rest.body);
     ws.close();
   });
@@ -115,10 +119,9 @@ describe('live structured run event streaming and replay', () => {
 
     await server.app.ctx.tasks.escalate(blocker.body.id, 'escalated to human: attempt 3 of 3 failed');
 
-    await waitFor(async () =>
-      ws.messages.some((m) => m.type === 'task_changed' && m.task.id === dependant.body.id && m.task.blockedOnFailed),
+    const msg = await waitFor(async () =>
+      ws.messages.find((m) => m.type === 'task_changed' && m.task.id === dependant.body.id && m.task.blockedOnFailed),
     );
-    const msg = ws.messages.find((m) => m.type === 'task_changed' && m.task.id === dependant.body.id);
     expect(msg.task).toMatchObject({ state: 'ready', openBlockerCount: 1, blockedOnFailed: true, agentWorkable: false });
     ws.close();
   });

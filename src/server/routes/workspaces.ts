@@ -34,8 +34,10 @@ const workspaceSchema = z
     id: z.number().meta({ example: 1 }),
     name: z.string().meta({ example: 'Harmonic' }),
     workingDir: z.string().meta({ example: '/home/dev/harmonic' }),
+    color: z.string().regex(/^#[0-9A-F]{6}$/i).meta({ example: '#FA6152' }),
     trackerEnabled: z.boolean().meta({ example: false }),
     trackerPollIntervalSeconds: z.number().meta({ example: 60 }),
+    excludedDirectories: z.array(z.string()).meta({ example: ['.git', 'node_modules', 'dist', 'build', 'coverage', '.next', '.turbo', 'out', 'target'] }),
     resolvedTracker: resolvedTrackerSchema,
     // Setting overrides: null ⇒ inherit the global default.
     harness: z.string().nullable().meta({ example: null }),
@@ -76,7 +78,7 @@ const workspaceSchema = z
 
 const workspacesListResponseSchema = listResponse('workspaces', workspaceSchema);
 
-export async function workspaceRoutes(fastify: FastifyInstance, ctx: Pick<TrackingContext, 'workspaces' | 'settingsStore' | 'trackerManager'>): Promise<void> {
+export async function workspaceRoutes(fastify: FastifyInstance, ctx: Pick<TrackingContext, 'workspaces' | 'settingsStore' | 'trackerManager' | 'workspaceWatcher'>): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
   const serializeResolvedTracker = (r: ResolvedTracker | null) =>
@@ -136,6 +138,7 @@ export async function workspaceRoutes(fastify: FastifyInstance, ctx: Pick<Tracki
     async (req, reply) => {
       const workspace = await ctx.workspaces.create(req.body);
       await ctx.trackerManager.sync();
+      await ctx.workspaceWatcher.sync(await ctx.workspaces.list());
       return reply.status(201).send(serialize(workspace));
     },
   );
@@ -184,6 +187,7 @@ export async function workspaceRoutes(fastify: FastifyInstance, ctx: Pick<Tracki
       }
       const workspace = await ctx.workspaces.update(req.params.id, req.body);
       await ctx.trackerManager.sync();
+      await ctx.workspaceWatcher.sync(await ctx.workspaces.list());
       return serialize(workspace);
     },
   );
@@ -207,6 +211,7 @@ export async function workspaceRoutes(fastify: FastifyInstance, ctx: Pick<Tracki
     async (req, reply) => {
       await ctx.workspaces.delete(req.params.id);
       await ctx.trackerManager.sync();
+      await ctx.workspaceWatcher.sync(await ctx.workspaces.list());
       return reply.status(204).send(null);
     },
   );

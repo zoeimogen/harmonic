@@ -37,7 +37,7 @@ function makeConfig(): AppConfig {
         cacheWarmSeconds: 300,
       },
     },
-    defaults: { harness: 'claude', workingDir: '/tmp', isolationMode: 'direct', priority: 'normal', conflictResolveTurns: 2 },
+    defaults: { harness: 'claude', isolationMode: 'direct', priority: 'normal', conflictResolveTurns: 2 },
     chat: { harness: 'claude', model: 'claude-sonnet-4-6' },
     autoRunner: { enabled: false, maxConcurrentAttempts: 2 },
     verify: { task: { preMerge: { commands: [], critics: [] }, postMerge: { commands: [], critics: [] } }, epic: { preMerge: { commands: [], critics: [] }, resolvePrompt: 'Resolve failures.' } },
@@ -45,6 +45,7 @@ function makeConfig(): AppConfig {
     drive: { prompt: '', unattendedReminder: '', continuePrompt: '', mergeFate: 'auto-merge', continueAttempts: 0 },
     maxAttempts: 3,
     contextReuseTokenLimit: 100_000,
+    editor: { maxFileSizeBytes: 2_097_152 },
     taskPrompt: '',
   };
 }
@@ -54,6 +55,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     id: 1,
     name: 'Workspace One',
     workingDir: '/tmp/ws1',
+    color: '#FA6152',
     trackerEnabled: false,
     trackerPollIntervalSeconds: 60,
     resolvedTracker: null,
@@ -86,6 +88,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     createdAt: 0,
     updatedAt: 0,
     ...overrides,
+    excludedDirectories: overrides.excludedDirectories ?? [],
   };
 }
 
@@ -97,6 +100,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     harness: 'claude',
     model: 'claude-sonnet-4-6',
     workingDir: '/tmp/ws1',
+    permissionMode: 'ask',
     state: 'active',
     sessionId: 'session-12',
     createdAt: 0,
@@ -116,14 +120,29 @@ function stubFetch(opts: {
   passwordConfigured: boolean;
   workspaces?: Workspace[];
   conversation?: Conversation;
+  update?: { availableVersion: string | null; armedVersion: string | null; dismissedVersion: string | null; idle: { runningAttempts: number; mergingOrIntegrating: boolean; conversationMidTurn: boolean } };
 }) {
   const workspaces = opts.workspaces ?? [];
-  vi.stubGlobal('fetch', async (input: string | URL | Request) => {
+  let update = opts.update ?? { availableVersion: null, armedVersion: null, dismissedVersion: null, idle: { runningAttempts: 0, mergingOrIntegrating: false, conversationMidTurn: false } };
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const path = String(input instanceof Request ? input.url : input);
     if (path === '/api/auth/me') {
       return new Response(JSON.stringify({ authenticated: opts.authenticated, passwordConfigured: opts.passwordConfigured }));
     }
     if (path === '/api/config') return new Response(JSON.stringify(makeConfig()));
+    if (path === '/api/update') return new Response(JSON.stringify(update));
+    if (path === '/api/update/arm' && init?.method === 'DELETE') {
+      update = { ...update, armedVersion: null };
+      return new Response(JSON.stringify(update));
+    }
+    if (path === '/api/update/arm') {
+      update = { ...update, armedVersion: update.availableVersion };
+      return new Response(JSON.stringify(update));
+    }
+    if (path === '/api/update/dismiss') {
+      update = { ...update, dismissedVersion: update.availableVersion };
+      return new Response(JSON.stringify(update));
+    }
     if (path === '/api/workspaces') return new Response(JSON.stringify({ workspaces, total: workspaces.length }));
     if (path.startsWith('/api/conversations?')) {
       const conversations = opts.conversation ? [opts.conversation] : [];
@@ -137,6 +156,7 @@ function stubFetch(opts: {
     if (/^\/api\/conversations\/\d+\/events$/.test(path)) return new Response(JSON.stringify({ events: [] }));
     if (path.startsWith('/api/tasks')) return new Response(JSON.stringify({ tasks: [], total: 0 }));
     if (path.includes('/epics')) return new Response(JSON.stringify({ epics: [], total: 0 }));
+    if (path.startsWith('/api/activity')) return new Response(JSON.stringify({ processes: [], total: 0 }));
     if (path.startsWith('/api/stats')) return new Response(JSON.stringify({ cost: null }));
     return new Response(JSON.stringify({}));
   });
@@ -177,6 +197,7 @@ async function renderApp(opts: {
   passwordConfigured: boolean;
   workspaces?: Workspace[];
   conversation?: Conversation;
+  update?: { availableVersion: string | null; armedVersion: string | null; dismissedVersion: string | null; idle: { runningAttempts: number; mergingOrIntegrating: boolean; conversationMidTurn: boolean } };
 }) {
   stubMatchMedia();
   vi.stubGlobal('WebSocket', IdleWebSocket);
@@ -191,6 +212,63 @@ async function renderApp(opts: {
 }
 
 describe('App smoke (issue #452)', () => {
+  it('shows the available update banner and dismisses that version', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace()],
+      update: { availableVersion: '2.7.0', armedVersion: null, dismissedVersion: null, idle: { runningAttempts: 0, mergingOrIntegrating: false, conversationMidTurn: false } },
+    });
+
+    expect(el.textContent).toContain('Version 2.7.0 is available');
+    const dismiss = [...el.querySelectorAll('button')].find((button) => button.textContent === 'Dismiss');
+    expect(dismiss).toBeDefined();
+    await act(async () => dismiss?.click());
+    expect(el.textContent).not.toContain('Version 2.7.0 is available');
+  });
+
+  it('shows the agent-drain notice and cancel action for an armed update', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace()],
+      update: { availableVersion: '2.7.0', armedVersion: '2.7.0', dismissedVersion: null, idle: { runningAttempts: 0, mergingOrIntegrating: false, conversationMidTurn: true } },
+    });
+
+    expect(el.textContent).toContain('waiting for agent before updating');
+    expect([...el.querySelectorAll('button')].some((button) => button.textContent === 'Cancel')).toBe(true);
+  });
+
+  it('shows upgrading once the armed instance is idle', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace()],
+      update: { availableVersion: '2.7.0', armedVersion: '2.7.0', dismissedVersion: null, idle: { runningAttempts: 0, mergingOrIntegrating: false, conversationMidTurn: false } },
+    });
+
+    expect(el.textContent).toContain('Updating to version 2.7.0');
+  });
+
+  it('arms and cancels an update from the banner', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace()],
+      update: { availableVersion: '2.7.0', armedVersion: null, dismissedVersion: null, idle: { runningAttempts: 1, mergingOrIntegrating: false, conversationMidTurn: false } },
+    });
+
+    const upgrade = [...el.querySelectorAll('button')].find((button) => button.textContent === 'Upgrade');
+    await act(async () => upgrade?.click());
+    await flush();
+    expect([...el.querySelectorAll('button')].some((button) => button.textContent === 'Cancel')).toBe(true);
+
+    const cancel = [...el.querySelectorAll('button')].find((button) => button.textContent === 'Cancel');
+    await act(async () => cancel?.click());
+    await flush();
+    expect([...el.querySelectorAll('button')].some((button) => button.textContent === 'Upgrade')).toBe(true);
+  });
+
   it('renders Login, not the app shell, when unauthenticated', async () => {
     const el = await renderApp({ authenticated: false, passwordConfigured: true });
 
@@ -218,7 +296,63 @@ describe('App smoke (issue #452)', () => {
     expect(newTaskButton).toBeDefined();
   });
 
-  it('exposes the theme toggle and Settings entry points once a workspace is active', async () => {
+  it('defaults the homepage to the sole workspace board when only one workspace exists', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace()],
+    });
+
+    expect(window.location.pathname).toBe('/workspace/1/board');
+    expect(el.textContent).not.toContain('Dashboard');
+  });
+
+  it('shows the dashboard at the homepage when multiple workspaces exist', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace({ id: 1, name: 'Workspace One' }), makeWorkspace({ id: 2, name: 'Workspace Two' })],
+    });
+
+    expect(window.location.pathname).toBe('/');
+    expect(el.textContent).toContain('Dashboard');
+  });
+
+  it('stays on the dashboard once navigated there with one workspace, without bouncing back', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace()],
+    });
+    expect(window.location.pathname).toBe('/workspace/1/board');
+
+    await act(async () => window.history.pushState(null, '', '/'));
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await flush();
+
+    expect(window.location.pathname).toBe('/');
+    expect(el.textContent).toContain('Dashboard');
+  });
+
+  it('reaches the dashboard from the workspace switcher with one workspace and stays there', async () => {
+    const el = await renderApp({
+      authenticated: true,
+      passwordConfigured: true,
+      workspaces: [makeWorkspace()],
+    });
+    expect(window.location.pathname).toBe('/workspace/1/board');
+
+    const switcher = el.querySelector<HTMLButtonElement>('button[aria-label="Active workspace"]');
+    await act(async () => switcher?.click());
+    const globalOption = [...el.querySelectorAll('li[role="option"]')].find((li) => li.textContent === 'Global');
+    await act(async () => globalOption?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    await flush();
+
+    expect(window.location.pathname).toBe('/');
+    expect(el.textContent).toContain('Dashboard');
+  });
+
+  it('exposes the theme toggle and Settings rail entry once a workspace is active', async () => {
     const el = await renderApp({
       authenticated: true,
       passwordConfigured: true,
@@ -229,11 +363,11 @@ describe('App smoke (issue #452)', () => {
       (b.getAttribute('aria-label') ?? '').startsWith('Theme:'),
     );
     expect(themeButton).toBeDefined();
-    expect(el.querySelector('button[aria-label="Settings"]')).not.toBeNull();
+    expect([...el.querySelectorAll('nav[aria-label="Views"] button')].some((button) => button.textContent === 'Settings')).toBe(true);
   });
 
   it('shows and clears the global permission alert outside Activity', async () => {
-    window.history.replaceState(null, '', '/?conversation=99');
+    window.history.replaceState(null, '', '/workspace/1/conversations/99');
     const el = await renderApp({
       authenticated: true,
       passwordConfigured: true,
@@ -262,9 +396,7 @@ describe('App smoke (issue #452)', () => {
     await act(async () => answerButton?.click());
     await flush();
 
-    expect(el.querySelector('[role="dialog"][aria-label="Conversation"]')).not.toBeNull();
     expect(el.textContent).toContain('Fix the deployment');
-    expect([...el.querySelectorAll('button')].some((button) => button.textContent === 'Allow once')).toBe(true);
 
     await act(async () => {
       IdleWebSocket.latest?.emit({

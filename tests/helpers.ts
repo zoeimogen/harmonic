@@ -10,6 +10,7 @@ import type { CriticHarnessDrive } from '../src/verification/critic.js';
 import { openAsyncDb, type AsyncDbHandle } from '../src/db/async.js';
 import { settings, workspaces } from '../src/db/schema.js';
 import type { ScheduledJobRegistration } from '../src/scheduler/scheduler.js';
+import type { DistributionMode } from '../src/distribution-mode.js';
 import { SettingsStore } from '../src/server/settings-store.js';
 import { WorkspaceService } from '../src/domain/workspaces.js';
 
@@ -27,14 +28,31 @@ export function makeSettingsStore(dataDir: string, overrides?: DeepPartial<AppCo
 }
 
 /** A `TaskService`/`AutoRunner`-shaped `getWorkspaces` callback over
- * whatever Workspaces already exist in `db` (openAsyncDb's boot-time backfill
- * seeds a default one), composed with `settings`'s per-Workspace overrides
+ * whatever Workspaces already exist in `db` (`startServer` seeds a default one),
+ * composed with `settings`'s per-Workspace overrides
  * — the plumbing every domain test that constructs
  * `TaskService` by hand needs, without repeating the select everywhere. `settings`
  * must be the SAME `SettingsStore` instance any override writer in the test
  * uses — see {@link makeSettingsStore}. */
 export const allWorkspaces = (db: AsyncDbHandle, settings: SettingsStore) => () =>
   new WorkspaceService(db, settings).list();
+
+/**
+ * Seed a single Workspace into a hand-opened async DB, idempotently. Production
+ * boot no longer seeds one (first-run onboarding adds the first Workspace), so
+ * every domain test that builds services directly over `openAsyncDb` and expects
+ * a Workspace to exist calls this after opening. Defaults `workingDir` to the
+ * process CWD — the value the old boot-time backfill used for these tests.
+ */
+export async function seedWorkspace(db: AsyncDbHandle, workingDir: string = process.cwd()): Promise<number> {
+  const existing = await db.read((d) => d.select().from(workspaces).orderBy(workspaces.id).get());
+  if (existing) return existing.id;
+  const now = Date.now();
+  const ws = await db.write((d) =>
+    d.insert(workspaces).values({ name: 'Default', workingDir, createdAt: now, updatedAt: now }).returning().get(),
+  );
+  return ws.id;
+}
 
 export const STUB_HARNESS = join(import.meta.dirname, 'stub-harness.mjs');
 
@@ -238,7 +256,7 @@ export interface FirehoseClient {
  * flaky firehose tests; gating on the first message removes it.
  */
 export async function connectFirehose(server: TestServer, token: string = server.sessionToken): Promise<FirehoseClient> {
-  const ws = new WebSocket(`${server.baseUrl.replace('http', 'ws')}/api/ws?token=${token}`);
+  const ws = new WebSocket(`${server.baseUrl.replace('http', 'ws')}/api/ws`, [token]);
   const messages: any[] = [];
   ws.addEventListener('message', (ev) => messages.push(JSON.parse(String(ev.data))));
   await new Promise<void>((resolve, reject) => {
@@ -254,7 +272,7 @@ export interface TestServer {
   baseUrl: string;
   dataDir: string;
   app: App;
-  /** Session token, usable as `?token=` for WebSocket connections. */
+  /** Session token, usable as the WebSocket subprotocol for `/api/ws` connections. */
   sessionToken: string;
   /** Authenticated JSON fetch helper: returns { status, body } without throwing. */
   api: (method: string, path: string, body?: unknown) => Promise<{ status: number; body: any }>;
@@ -315,6 +333,10 @@ export async function startServer(
     scheduledJobRegistrations?: ScheduledJobRegistration[] | undefined;
     /** Test-only metrics-summary Scheduler Job wiring, forwarded to `buildApp`. */
     metricsSummary?: { intervalMs: number; flush: () => Promise<void> } | undefined;
+    distributionMode?: DistributionMode | undefined;
+    updateCheckLatest?: (() => Promise<string>) | undefined;
+    version?: string | undefined;
+    onUpgradeIdle?: ((version: string) => Promise<void> | void) | undefined;
   } = {},
 ): Promise<TestServer> {
   const dataDir = opts.dataDir ?? mkdtempSync(join(tmpdir(), 'harmonic-test-'));
@@ -331,13 +353,21 @@ export async function startServer(
     criticDrive: opts.criticDrive,
     scheduledJobRegistrations: opts.scheduledJobRegistrations,
     metricsSummary: opts.metricsSummary,
+    distributionMode: opts.distributionMode,
+    updateCheckLatest: opts.updateCheckLatest,
+    version: opts.version,
+    onUpgradeIdle: opts.onUpgradeIdle,
     // Heavy synchronous test setup can trip the event-loop stall monitor.
     reliabilityTuning: { eventLoop: { enabled: false } },
   });
-  // The Default Workspace seeds workingDir from process.cwd(); never let a test
-  // server operate on the developer's real checkout.
+  // Production boot seeds no Workspace (first-run onboarding adds the first one),
+  // but most API tests assume one exists. Seed a throwaway Default on a temp dir
+  // so no test ever operates on the developer's real checkout.
   const workspaceDir = mkdtempSync(join(tmpdir(), 'harmonic-workdir-'));
-  await app.ctx.asyncDb.write((d) => d.update(workspaces).set({ workingDir: workspaceDir }).run());
+  const now = Date.now();
+  await app.ctx.asyncDb.write((d) =>
+    d.insert(workspaces).values({ name: 'Default', workingDir: workspaceDir, createdAt: now, updatedAt: now }).run(),
+  );
   await app.listen({ port: 0, host: '127.0.0.1' });
   const { port } = app.server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${port}`;

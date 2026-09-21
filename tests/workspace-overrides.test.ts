@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openAsyncDb, type AsyncDbHandle } from '../src/db/async.js';
-import { WorkspaceService } from '../src/domain/workspaces.js';
+import { DEFAULT_EXCLUDED_DIRECTORIES, workspaceOverridesSchema, WorkspaceService } from '../src/domain/workspaces.js';
 import { verificationCommandSchema, taskVerificationCriticSchema, budgetGuardrailSchema } from '../src/config.js';
 import { resolveVerifiers, resolveDrive } from '../src/domain/setting-override.js';
 import type { SettingsStore } from '../src/server/settings-store.js';
-import { makeSettingsStore } from './helpers.js';
+import { makeSettingsStore, seedWorkspace } from './helpers.js';
 
 describe('WorkspaceService override persistence (issue #64)', () => {
   let dataDir: string;
@@ -18,6 +18,7 @@ describe('WorkspaceService override persistence (issue #64)', () => {
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'harmonic-ws-over-'));
     asyncDb = await openAsyncDb(dataDir);
+    await seedWorkspace(asyncDb);
     settingsStore = await makeSettingsStore(dataDir);
     workspaces = new WorkspaceService(asyncDb, settingsStore);
   });
@@ -28,6 +29,7 @@ describe('WorkspaceService override persistence (issue #64)', () => {
 
   it('a fresh Workspace inherits every overridable setting (all null)', async () => {
     const ws = (await workspaces.list())[0]!;
+    expect(ws.excludedDirectories).toEqual(DEFAULT_EXCLUDED_DIRECTORIES);
     expect(ws.harness).toBeNull();
     expect(ws.model).toBeNull();
     expect(ws.chatHarness).toBeNull();
@@ -51,6 +53,29 @@ describe('WorkspaceService override persistence (issue #64)', () => {
     expect(ws.driveContinueAttempts).toBeNull();
     expect(ws.taskPrompt).toBeNull();
     expect(ws.toolTimeoutMinutes).toBeNull();
+  });
+
+  it('persists its excluded directories independently from the default list', async () => {
+    const ws = (await workspaces.list())[0]!;
+    const updated = await workspaces.update(ws.id, { excludedDirectories: ['generated'] });
+
+    expect(updated.excludedDirectories).toEqual(['generated']);
+    expect(settingsStore.getOverrides(ws.id).excludedDirectories).toEqual(['generated']);
+  });
+
+  it('seeds new Workspaces with a persisted excluded-directory override', async () => {
+    const workingDir = join(dataDir, 'second-workspace');
+    mkdirSync(workingDir);
+    const created = await workspaces.create({ name: 'Second', workingDir });
+
+    expect(created.excludedDirectories).toEqual(DEFAULT_EXCLUDED_DIRECTORIES);
+    expect(settingsStore.getOverrides(created.id).excludedDirectories).toEqual(DEFAULT_EXCLUDED_DIRECTORIES);
+  });
+
+  it('rejects non-canonical excluded directory paths', () => {
+    for (const excludedDirectories of [['src/'], ['./src'], ['src//generated'], ['src\\generated'], ['src/../build']]) {
+      expect(workspaceOverridesSchema.safeParse({ excludedDirectories }).success).toBe(false);
+    }
   });
 
   it('sets explicit overrides', async () => {
@@ -116,21 +141,21 @@ describe('WorkspaceService override persistence (issue #64)', () => {
     expect(untouched.autoRunnerEnabled).toBe(false);
   });
 
-  it('sets explicit staged verifier overrides as JSON lists', async () => {
+  it('sets explicit staged verifier overlays as JSON lists', async () => {
     const ws = (await workspaces.list())[0]!;
     const updated = await workspaces.update(ws.id, {
-      taskPreMergeCommands: [verificationCommandSchema.parse({ command: 'npm', args: ['test'] })],
-      taskPreMergeCritics: [taskVerificationCriticSchema.parse({ issuePrompt: 'review issue', noIssuePrompt: 'review Task', model: 'claude-opus-5' })],
+      taskPreMergeCommands: [{ kind: 'local', enabled: true, command: verificationCommandSchema.parse({ id: 'cmd-test', command: 'npm', args: ['test'] }) }],
+      taskPreMergeCritics: [{ kind: 'local', enabled: true, critic: taskVerificationCriticSchema.parse({ id: 'critic-test', name: 'Test critic', issuePrompt: 'review issue', noIssuePrompt: 'review Task', model: 'claude-opus-5' }) }],
     });
-    expect(JSON.parse(updated.taskPreMergeCommands!)).toMatchObject([{ command: 'npm', args: ['test'] }]);
-    expect(JSON.parse(updated.taskPreMergeCritics!)).toMatchObject([{ issuePrompt: 'review issue', noIssuePrompt: 'review Task', model: 'claude-opus-5' }]);
+    expect(JSON.parse(updated.taskPreMergeCommands!)).toMatchObject([{ kind: 'local', command: { command: 'npm', args: ['test'] } }]);
+    expect(JSON.parse(updated.taskPreMergeCritics!)).toMatchObject([{ kind: 'local', critic: { name: 'Test critic', issuePrompt: 'review issue', noIssuePrompt: 'review Task', model: 'claude-opus-5' } }]);
   });
 
-  it('clears staged verifier overrides back to inherit with null', async () => {
+  it('clears staged verifier overlays back to inherit with null', async () => {
     const ws = (await workspaces.list())[0]!;
     await workspaces.update(ws.id, {
-      taskPreMergeCommands: [verificationCommandSchema.parse({ command: 'npm', args: ['test'] })],
-      taskPreMergeCritics: [taskVerificationCriticSchema.parse({ issuePrompt: 'review issue', noIssuePrompt: 'review Task', model: 'claude-opus-5' })],
+      taskPreMergeCommands: [{ kind: 'local', enabled: true, command: verificationCommandSchema.parse({ id: 'cmd-test', command: 'npm', args: ['test'] }) }],
+      taskPreMergeCritics: [{ kind: 'local', enabled: true, critic: taskVerificationCriticSchema.parse({ id: 'critic-test', name: 'Test critic', issuePrompt: 'review issue', noIssuePrompt: 'review Task', model: 'claude-opus-5' }) }],
     });
     const cleared = await workspaces.update(ws.id, {
       taskPreMergeCommands: null,
@@ -140,13 +165,15 @@ describe('WorkspaceService override persistence (issue #64)', () => {
     expect(cleared.taskPreMergeCritics).toBeNull();
   });
 
-  it('patches a stage list to empty, round-trips it, and resolves just that verifier list to off', async () => {
+  it('disabling every named global in the overlay resolves that verifier list to off (ADR-0037: an empty overlay can no longer express this)', async () => {
     const ws = (await workspaces.list())[0]!;
-    const updated = await workspaces.update(ws.id, { taskPreMergeCritics: [] });
-    expect(JSON.parse(updated.taskPreMergeCritics!)).toEqual([]);
+    const updated = await workspaces.update(ws.id, {
+      taskPreMergeCritics: [{ kind: 'global', ref: 'critic-global', enabled: false }],
+    });
+    expect(JSON.parse(updated.taskPreMergeCritics!)).toEqual([{ kind: 'global', ref: 'critic-global', enabled: false }]);
     const resolved = resolveVerifiers(updated, {
       verify: {
-        task: { preMerge: { commands: [], critics: [{ issuePrompt: 'global issue review', noIssuePrompt: 'global Task review', model: 'claude-opus-5' }] }, postMerge: { commands: [], critics: [] } },
+        task: { preMerge: { commands: [], critics: [{ id: 'critic-global', name: 'Test critic', issuePrompt: 'global issue review', noIssuePrompt: 'global Task review', model: 'claude-opus-5' }] }, postMerge: { commands: [], critics: [] } },
         epic: { preMerge: { commands: [], critics: [] }, resolvePrompt: 'Resolve failures.' },
       },
     } as any);
@@ -155,10 +182,10 @@ describe('WorkspaceService override persistence (issue #64)', () => {
 
   it('leaves an omitted verifier override untouched (issue #132)', async () => {
     const ws = (await workspaces.list())[0]!;
-    await workspaces.update(ws.id, { taskPreMergeCommands: [verificationCommandSchema.parse({ command: 'npm', args: ['test'] })] });
+    await workspaces.update(ws.id, { taskPreMergeCommands: [{ kind: 'local', enabled: true, command: verificationCommandSchema.parse({ id: 'cmd-test', command: 'npm', args: ['test'] }) }] });
     const renamed = await workspaces.update(ws.id, { name: 'Renamed' });
     expect(renamed.name).toBe('Renamed');
-    expect(JSON.parse(renamed.taskPreMergeCommands!)).toMatchObject([{ command: 'npm', args: ['test'] }]);
+    expect(JSON.parse(renamed.taskPreMergeCommands!)).toMatchObject([{ kind: 'local', command: { command: 'npm', args: ['test'] } }]);
   });
 
   it('keeps a false guardrailProgress override distinct from inherit (null) (issue #165)', async () => {
@@ -261,6 +288,7 @@ describe('WorkspaceService override persistence (issue #64)', () => {
 
     await workspaces.delete(ws.id);
     expect(settingsStore.getOverrides(ws.id)).toEqual({
+      excludedDirectories: null,
       harness: null,
       model: null,
       chatHarness: null,

@@ -708,9 +708,9 @@ export class TaskService {
   }
 
   /**
-   * Resume an escalated ticket's Attempt loop: back to ready with the guidance
-   * recorded as feedback for the next Attempt. Native Tasks bake it into the
-   * prompt; a mirrored Task's prompt is re-derived from its ticket each poll,
+   * Resume an escalated ticket's Attempt loop: back to ready with optional
+   * guidance recorded as feedback for the next Attempt. Native Tasks bake it
+   * into the prompt; a mirrored Task's prompt is re-derived from its ticket,
    * so its feedback rides the column.
    */
   async requeue(id: number, feedback?: string, continuation?: 'full' | 'condensed'): Promise<TaskRow> {
@@ -795,6 +795,17 @@ export class TaskService {
       const task = await this.get(id);
       if (task.state !== 'paused') throw new DomainError('invalid_state', `task ${id} is ${task.state}, not paused`);
       return this.setState(id, 'working');
+    });
+  }
+
+  /** Record how the next Attempt should re-attach to its prior Session: `full`
+   * reuses the retained conversation, `condensed` starts a fresh one. */
+  async setContinuationChoice(id: number, choice: 'full' | 'condensed'): Promise<TaskRow> {
+    return withTaskLock(id, async () => {
+      const row = await this.db.write((db) =>
+        db.update(tasks).set({ continuationChoice: choice }).where(eq(tasks.id, id)).returning().get(),
+      );
+      return this.changed(row!);
     });
   }
 

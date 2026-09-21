@@ -2,10 +2,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { logger } from '../../logger.js';
 import { dominantModel, foldModels, usageFromModels, type ParsedSession, type ProcessNode, type ProcessStatus } from '../usage.js';
-import type { HarnessAdapter, ModelUsage } from './adapter.js';
+import { resolveUnattendedPermissionMode, type HarnessAdapter, type ModelUsage } from './adapter.js';
+import { num, usageBucket } from './model-usage.js';
 
-const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+const COPILOT_AGENT_MODE = 'https://agentclientprotocol.com/protocol/session-modes#agent';
+const COPILOT_PLAN_MODE = 'https://agentclientprotocol.com/protocol/session-modes#plan';
+const COPILOT_AUTOPILOT_MODE = 'https://agentclientprotocol.com/protocol/session-modes#autopilot';
+let reportedPermissionModes = false;
 
 /**
  * Copilot's Usage lives in its native store `<home>/session-store.db`: the
@@ -40,7 +45,8 @@ function readUsageRows(dbPath: string, sessionId: string): UsageRow[] {
     } finally {
       db.close();
     }
-  } catch {
+  } catch (err) {
+    logger.debug('copilot: reading usage rows from session-store.db failed', { dbPath, sessionId, error: err instanceof Error ? err.message : String(err) });
     return [];
   }
 }
@@ -53,12 +59,7 @@ function rowsToModels(rows: UsageRow[]): Record<string, ModelUsage> {
   const models: Record<string, ModelUsage> = {};
   const nano: Record<string, number> = {};
   for (const r of rows) {
-    const bucket = (models[r.model] ??= {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    });
+    const bucket = usageBucket(models, r.model);
     const cacheRead = num(r.cache_read_tokens);
     const cacheWrite = num(r.cache_write_tokens);
     bucket.inputTokens += Math.max(0, num(r.input_tokens) - cacheRead - cacheWrite);
@@ -90,7 +91,8 @@ function readSubagents(eventsFile: string): Map<string, SubagentInfo> {
     let event: any;
     try {
       event = JSON.parse(line);
-    } catch {
+    } catch (err) {
+      logger.debug('copilot: skipping a malformed events.jsonl line', { eventsFile, error: err instanceof Error ? err.message : String(err) });
       continue;
     }
     const data = event?.data;
@@ -118,7 +120,24 @@ export const copilotAdapter: HarnessAdapter = {
   // falsifies session/new's reported currentModelId without changing the
   // session. The CLI also updates itself mid-run unless told not to.
   spawnEnv: () => ({ COPILOT_AUTO_UPDATE: 'false' }),
-  unattendedPermissionMode: (available) => ['auto', 'bypassPermissions'].find((mode) => available.includes(mode)),
+  permissionModes: {
+    [COPILOT_PLAN_MODE]: 'Plan',
+    [COPILOT_AGENT_MODE]: 'Agent',
+    [COPILOT_AUTOPILOT_MODE]: 'Autopilot',
+  },
+  defaultPermissionMode: COPILOT_AGENT_MODE,
+  unattendedPermissionMode: (available, configured) => {
+    if (!reportedPermissionModes) {
+      reportedPermissionModes = true;
+      logger.info('copilot: advertised ACP permission modes', { modes: available.join(',') || 'none' });
+    }
+    return resolveUnattendedPermissionMode({
+      available,
+      configured,
+      permissionModes: copilotAdapter.permissionModes ?? {},
+      defaultPermissionMode: copilotAdapter.defaultPermissionMode,
+    });
+  },
   requiresUnattendedPermissionMode: true,
 
   // Sent for every run, 'auto' included: an unpinned Copilot ACP session

@@ -11,7 +11,7 @@ import { deriveRole, mirrorScan, deriveMaps, toMirrorInput } from '../src/tracke
 import { mirroredAgentEligible } from '../src/domain/agent-workable.js';
 import type { Ticket } from '../src/tracker/adapter.js';
 import type { SettingsStore } from '../src/server/settings-store.js';
-import { allWorkspaces, makeSettingsStore } from './helpers.js';
+import { allWorkspaces, makeSettingsStore, seedWorkspace } from './helpers.js';
 
 const ticket = (over: Partial<Ticket>): Ticket => ({
   number: 100,
@@ -78,6 +78,7 @@ describe('mirrorScan upsert', () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'harmonic-mirror-'));
     asyncDb = await openAsyncDb(dir);
+    await seedWorkspace(asyncDb);
     settingsStore = await makeSettingsStore(dir);
     tasks = new TaskService(asyncDb, () => baselineConfig(), allWorkspaces(asyncDb, settingsStore));
     wsId = (await allWorkspaces(asyncDb, settingsStore)())[0]!.id;
@@ -183,18 +184,26 @@ describe('mirrorScan upsert', () => {
     expect(child.state).toBe('ready');
   });
 
-  it('an Epic parent is never agent-workable — a container is never auto-run', async () => {
+  it('demotes an unlabelled structural Epic into a container, not a mirrored Task (issue #563)', async () => {
+    const results = await mscan([
+      ticket({ number: 400, labels: ['ready-for-agent'] }),
+      ticket({ number: 401, parent: 400, labels: ['ready-for-agent'] }),
+    ]);
+
+    expect(results.map((t) => t.trackerRef)).toEqual([401]);
+    expect((await tasks.list()).some((t) => t.trackerRef === 400)).toBe(false);
+    expect((await tasks.listTrackerContainers(wsId)).map((c) => c.trackerRef)).toEqual([400]);
+  });
+
+  it('a structural Epic parent is demoted, while its child remains agent-workable', async () => {
     const results = await mscan([
       ticket({ number: 200, labels: ['ready-for-agent'] }),
       ticket({ number: 201, parent: 200, labels: ['ready-for-agent'] }),
     ]);
-    const epic = results.find((t) => t.trackerRef === 200)!;
     const child = results.find((t) => t.trackerRef === 201)!;
-    expect((await tasks.withDeps(epic)).agentWorkable).toBe(false);
+    expect(results.some((t) => t.trackerRef === 200)).toBe(false);
     expect((await tasks.withDeps(child)).agentWorkable).toBe(true);
-    expect((await tasks.listWithDeps({ workspaceId: wsId })).map((t) => [t.trackerRef, t.agentWorkable])).toEqual(
-      expect.arrayContaining([[200, false], [201, true]]),
-    );
+    expect((await tasks.listTrackerContainers(wsId)).map((container) => container.trackerRef)).toContain(200);
   });
 
   it('a nested container (has a parent AND children) is never agent-workable, but only the top-level one is an Epic (ADR-0016)', async () => {
@@ -412,6 +421,7 @@ describe('durable tracker facts (issue #233)', () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'harmonic-facts-'));
     asyncDb = await openAsyncDb(dir);
+    await seedWorkspace(asyncDb);
     settingsStore = await makeSettingsStore(dir);
     tasks = new TaskService(asyncDb, () => baselineConfig(), allWorkspaces(asyncDb, settingsStore));
     wsId = (await allWorkspaces(asyncDb, settingsStore)())[0]!.id;
@@ -473,6 +483,7 @@ describe('durable tracker facts (issue #233)', () => {
     await mirrorScan(tasks, [rich], wsId);
     await asyncDb.close();
     asyncDb = await openAsyncDb(dir);
+    await seedWorkspace(asyncDb);
     const row = await rawRow(233);
     expect(row.trackerState).toBe('open');
     expect(row.trackerParent).toBe(229);
@@ -514,6 +525,7 @@ describe('deriveMaps (query-time rollup)', () => {
   it('groups mirrored Tasks under their map by mapRef, with per-state counts', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'harmonic-maps-'));
     const asyncDb = await openAsyncDb(dir);
+    await seedWorkspace(asyncDb);
     const settingsStore = await makeSettingsStore(dir);
     const tasks = new TaskService(asyncDb, () => baselineConfig(), allWorkspaces(asyncDb, settingsStore));
     const wsId = (await allWorkspaces(asyncDb, settingsStore)())[0]!.id;

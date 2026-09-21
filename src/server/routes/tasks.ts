@@ -18,7 +18,8 @@ import {
   isTaskAttempt,
   type AttemptRow,
 } from '../../db/schema.js';
-import { DomainError } from '../../domain/errors.js';
+import { DomainError, GitError } from '../../domain/errors.js';
+import { attempted, orFallback } from '../../error-handling.js';
 import { mergeUsage, type AttemptUsage } from '../../execution/usage.js';
 import { readTranscriptLog, withOperatorMessages, type OperatorMessage, type TranscriptLog } from '../../execution/transcript-log.js';
 import { adapterFor } from '../../execution/harness/registry.js';
@@ -30,18 +31,23 @@ import { listResponse, paginate, paginationQuerySchema } from '../pagination.js'
 import { diffFilesResponseSchema } from './diff.js';
 import { attemptDiffFiles, attemptDiffStat } from '../../execution/worktree-diff.js';
 
-/** The operator's guidance on an escalated ticket: becomes the next Attempt's feedback. */
+/** A `GitError` whose stderr says the worktree/branch is simply gone — an expected absence, not a failure. */
+const worktreeGone = (err: unknown): boolean =>
+  err instanceof GitError && /not a git repository|does not exist|No such file or directory|unknown revision/i.test(err.stderr);
+
+/** Optional operator guidance on an escalated ticket: becomes the next Attempt's feedback. */
 const guidanceExample = 'The limiter is per-process; it needs to be shared across workers.';
 const rejectInputSchema = z.object({
-  guidance: z.string().trim().min(1).meta({ example: guidanceExample }),
+  guidance: z.string().trim().meta({ example: guidanceExample }),
   /** Force-start the next Attempt now, bypassing Auto-Runner capacity; omitted/false requeues to `ready`. */
   start: z.boolean().optional().meta({ example: false }),
 });
 /** Omitted/false verifies the candidate first; `true` skips verification and merges it as-is. */
-const acceptInputSchema = z.object({
-  force: z.boolean().optional().meta({ example: false }),
-}).nullish();
 const cancelInputSchema = z.object({ withDependents: z.boolean().optional().meta({ example: true }) }).nullish();
+/** How to re-attempt a paused Task: `full` reuses the retained Session/conversation; `condensed` starts a fresh Session from a summary. Omitted keeps the recommended default (reuse when eligible). */
+const resumeInputSchema = z
+  .object({ continuation: z.enum(['full', 'condensed']).optional().meta({ example: 'full' }) })
+  .nullish();
 /** What the continuation rule will do with this Task's live Session; `available: false` when there is nothing to continue. */
 const continuationPreviewSchema = z.discriminatedUnion('available', [
   z.object({ available: z.literal(false) }),
@@ -95,6 +101,11 @@ function contextTokensForAttempt(run: AttemptRow): number | null {
 const dependsOnBodySchema = z.object({ dependsOnId: z.number().int().positive().meta({ example: 4818 }) });
 const steerInputSchema = z.object({
   text: z.string().min(1).meta({ example: 'Stop — check the existing tests before changing the limiter.' }),
+});
+
+const extendGuardrailInputSchema = z.object({
+  /** Minutes to add to the running Attempt's wall-clock budget. */
+  minutes: z.number().int().positive().max(1440).meta({ example: 60 }),
 });
 const depParamsSchema = z.object({
   id: z.coerce.number().int().meta({ example: 4821 }),
@@ -387,14 +398,17 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       const { sortBy, order, limit, offset, epics, ...query } = req.query;
       const taskRows = await tasksToApi(ctx, await ctx.tasks.listWithDeps(query));
       const needle = query.q?.trim().toLowerCase();
+      const epicTickets = query.workspaceId == null ? [] : await ctx.trackerManager.listEpicTickets(query.workspaceId);
+      const epicRefs = new Set(epicTickets.map((ticket) => ticket.number));
+      const nonDriverTaskRows = taskRows.filter((task) => task.trackerRef == null || !epicRefs.has(task.trackerRef));
       const wantEpics =
         epics === 'true' && query.workspaceId != null && filterEmpty(query.state) && filterEmpty(query.harness) && filterEmpty(query.priority);
       const epicRows = wantEpics
-        ? (await ctx.trackerManager.listEpicTickets(query.workspaceId!))
+        ? epicTickets
             .filter((ticket) => !needle || ticket.title.toLowerCase().includes(needle))
             .map((ticket) => epicToListRow(ticket, query.workspaceId!))
         : [];
-      const rows = sortListRows([...taskRows, ...epicRows], sortBy, order);
+      const rows = sortListRows([...nonDriverTaskRows, ...epicRows], sortBy, order);
       const { items, total } = paginate(rows, { limit, offset });
       return { tasks: items, total };
     },
@@ -504,8 +518,10 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
     {
       schema: {
         tags: ['Tasks'],
-        description: 'Resume a paused task on its existing Session. Reachable with an attempt-scoped Attempt Key.',
+        description:
+          'Resume a paused task. `continuation` picks how it re-attaches to its prior Session: `full` reuses the retained conversation, `condensed` starts a fresh one; omitted keeps the recommended default. Reachable with an attempt-scoped Attempt Key.',
         params: idParamsSchema,
+        body: resumeInputSchema,
         response: {
           200: taskSchema.describe('The working task.'),
           409: errorResponse('The task is not paused.'),
@@ -513,14 +529,17 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       },
     },
     async (req, reply) => {
-      if (await ctx.runner.resume(req.params.id)) {
+      await ctx.upgrade.assertManualLaunchAllowed();
+      const continuation = req.body?.continuation;
+      const tryLiveResume = continuation !== 'condensed';
+      if (tryLiveResume && (await ctx.runner.resume(req.params.id))) {
         return await withDeps({ id: req.params.id });
       }
       const task = await ctx.tasks.get(req.params.id);
       if (task.state !== 'paused') {
         return reply.code(409).send({ error: { code: 'conflict', message: 'The task has no paused Attempt to resume.' } });
       }
-      return await withDeps(await ctx.runner.resumePaused(req.params.id));
+      return await withDeps(await ctx.runner.resumePaused(req.params.id, continuation));
     },
   );
 
@@ -574,21 +593,51 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       schema: {
         tags: ['Tasks'],
         description:
-          "Steer a running task: send an operator message to its active Attempt. When the harness supports ACP mid-turn steering, the message is injected into the running turn immediately — pre-empting the current generation without cancelling it. Otherwise, or when the agent is parked between turns, the message is queued and delivered as a fresh prompt turn at the next turn boundary. When no Attempt is active but the task's last Attempt left a resumable session (an escalated task that ended without closure), the message continues that session in a fresh Attempt. A cold cache changes the estimated cost, never eligibility. Use it to redirect an agent that has gone off-track, nudge one that ended its turn and parked, or continue one whose Attempt just ended. Operator only.",
+          "Steer a running task: send an operator message to its active Attempt. When the harness supports ACP mid-turn steering, the message is injected into the running turn immediately — pre-empting the current generation without cancelling it. Otherwise, or when the agent is parked between turns, the message is queued and delivered as a fresh prompt turn at the next turn boundary. When no Attempt is active but the task's last Attempt left a resumable session (an escalated task that ended without closure), the message continues that session in a fresh Attempt. A paused task is resumed to working and the message delivered the same way. A cold cache changes the estimated cost, never eligibility. Use it to redirect an agent that has gone off-track, nudge one that ended its turn and parked, continue one whose Attempt just ended, or resume a paused one. Operator only.",
         params: idParamsSchema,
         body: steerInputSchema,
         response: {
-          200: okResponseSchema.describe("The message was injected into the running turn or queued at the next boundary of the task's active Attempt, or continued its last Attempt's resumable session in a fresh Attempt."),
+          200: okResponseSchema.describe("The message was injected into the running turn or queued at the next boundary of the task's active Attempt, continued its last Attempt's resumable session in a fresh Attempt, or resumed a paused task and delivered the message."),
           409: errorResponse('The task has no active Attempt to steer and no resumable session to continue.'),
         },
       },
     },
     async (req) => {
+      await ctx.upgrade.assertManualLaunchAllowed();
       await ctx.tasks.assertExists(req.params.id);
-      if (!(await ctx.runner.steer(req.params.id, req.body.text)) && !(await ctx.runner.steerSettled(req.params.id, req.body.text))) {
+      if (
+        !(await ctx.runner.steer(req.params.id, req.body.text)) &&
+        !(await ctx.runner.steerSettled(req.params.id, req.body.text)) &&
+        !(await ctx.runner.steerPaused(req.params.id, req.body.text))
+      ) {
         throw new DomainError('invalid_state', `task ${req.params.id} has no active Attempt to steer and no resumable session to continue`);
       }
       return { ok: true } as const;
+    },
+  );
+
+  app.post(
+    '/tasks/:id/extend-guardrail',
+    {
+      schema: {
+        tags: ['Tasks'],
+        description:
+          "Extend the wall-clock time guardrail of a working task's live Attempt by `minutes`, giving a run that is close to its budget more time without restarting it. The raised cap is persisted onto the Attempt's frozen guardrail config and the live deadline is re-armed immediately. Operator only.",
+        params: idParamsSchema,
+        body: extendGuardrailInputSchema,
+        response: {
+          200: taskSchema.describe('The working task, with the extended budget in effect.'),
+          409: errorResponse('The task is not working or has no active Attempt with a wall-clock budget.'),
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!(await ctx.runner.extendGuardrail(req.params.id, req.body.minutes))) {
+        return reply
+          .code(409)
+          .send({ error: { code: 'conflict', message: 'The task is not actively running with a wall-clock budget.' } });
+      }
+      return await withDeps({ id: req.params.id });
     },
   );
 
@@ -651,16 +700,18 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       schema: {
         tags: ['Tasks'],
         description:
-          "Accept an escalated ticket: verifies the ticket's candidate first — a pass merges it as-is and continues the success path (merge, close the tracker issue, clean up, moving it to done); a non-pass re-enters the Attempt loop with the verifier's reason as feedback, exactly like Reject, and the ticket stays escalated-turned-working. Force-Accept (`{ force: true }`) skips verification and merges the candidate as-is. Human-only.",
+          "Accept an escalated ticket: the operator has judged the work done, so the candidate is merged as-is — merge, close the tracker issue, clean up, move it to done — with no verification. Human-only.",
         params: idParamsSchema,
-        body: acceptInputSchema,
         response: {
-          200: taskSchema.describe('The task, done (a passing or forced Accept) or back in the Attempt loop (a non-pass verify).'),
+          200: taskSchema.describe('The task, now done and merged.'),
           409: errorResponse('The task is not escalated, has no candidate to accept (the branch has no commits ahead of its base), or the merging failed (the detail says why); it stays escalated.'),
         },
       },
     },
-    async (req) => await withDeps(await ctx.escalation.accept(req.params.id, { force: req.body?.force ?? false })),
+    async (req) => {
+      await ctx.upgrade.assertManualLaunchAllowed();
+      return withDeps(await ctx.escalation.accept(req.params.id));
+    },
   );
 
   app.post(
@@ -669,17 +720,19 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       schema: {
         tags: ['Tasks'],
         description:
-          'Reject an escalated ticket with guidance: the guidance becomes feedback for the next Attempt and the attempt budget resets. The ticket requeues to `ready` — the Auto-Runner starts the next Attempt when capacity frees; it is not force-started here unless `start: true` (the warm-Session "start now" override, which bypasses the capacity ceiling). The escalated Attempt\'s branch is retained as evidence until its Session retires. Human-only.',
+          'Reject an escalated ticket: optional guidance becomes feedback for the next Attempt and the attempt budget resets. The ticket requeues to `ready` — the Auto-Runner starts the next Attempt when capacity frees; it is not force-started here unless `start: true` (the warm-Session "start now" override, which bypasses the capacity ceiling). The escalated Attempt\'s branch is retained as evidence until its Session retires. Human-only.',
         params: idParamsSchema,
         body: rejectInputSchema,
         response: {
           200: taskSchema.describe('The task, back in the Attempt loop.'),
-          400: errorResponse('The guidance is empty.'),
           409: errorResponse('The task is not escalated.'),
         },
       },
     },
-    async (req) => await withDeps(await ctx.escalation.reject(req.params.id, req.body.guidance, req.body.start ?? false)),
+    async (req) => {
+      if (req.body.start) await ctx.upgrade.assertManualLaunchAllowed();
+      return withDeps(await ctx.escalation.reject(req.params.id, req.body.guidance, req.body.start ?? false));
+    },
   );
 
   app.post(
@@ -722,14 +775,21 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       const sessions = new Map<number, Awaited<ReturnType<typeof ctx.sessions.get>> | null>();
       for (const run of runsForTask) {
         if (run.sessionRowId === null || sessions.has(run.sessionRowId)) continue;
-        try {
-          sessions.set(run.sessionRowId, await ctx.sessions.get(run.sessionRowId));
-        } catch {
-          sessions.set(run.sessionRowId, null);
-        }
+        const sessionRowId = run.sessionRowId;
+        const resolved = await attempted(() => ctx.sessions.get(sessionRowId), {
+          op: 'tasks.continuationPreview.resolveSession',
+          level: 'warn',
+          context: { taskId: task.id, attemptId: run.id, sessionRowId },
+        });
+        sessions.set(sessionRowId, resolved.ok ? resolved.value : null);
       }
       const config = ctx.settingsStore.getGlobal();
-      const workspace = await ctx.workspaces.get(atRestWorkspaceId(task.workspaceId)).catch(() => null);
+      const resolvedWs = await attempted(() => ctx.workspaces.get(atRestWorkspaceId(task.workspaceId)), {
+        op: 'tasks.continuationPreview.resolveWorkspace',
+        level: 'error',
+        context: { taskId: task.id, workspaceId: task.workspaceId ?? undefined },
+      });
+      const workspace = resolvedWs.ok ? resolvedWs.value : undefined;
       const preview = previewManualResumeContinuation(
         runsForTask,
         (sessionRowId) => sessions.get(sessionRowId) ?? null,
@@ -764,6 +824,7 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       },
     },
     async (req, reply) => {
+      await ctx.upgrade.assertManualLaunchAllowed();
       const run = await ctx.runner.start(req.params.id);
       return reply.status(201).send(await attemptToApi(ctx, run));
     },
@@ -1077,7 +1138,16 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       const run = await ctx.attempts.get(req.params.id);
       if (!isTaskAttempt(run) || !run.branch || !run.baseBranch) return { branch: null, baseBranch: null, stat: null };
       const task = await ctx.tasks.get(run.taskId);
-      const stat = await attemptDiffStat(task.workingDir, run).catch(() => null);
+      const stat = await orFallback(
+        () => attemptDiffStat(task.workingDir, run),
+        {
+          op: 'attempts.diffStat',
+          level: 'warn',
+          notFoundIf: worktreeGone,
+          context: { attemptId: run.id, taskId: run.taskId, workingDir: task.workingDir, branch: run.branch ?? undefined },
+        },
+        null,
+      );
       return { branch: run.branch, baseBranch: run.baseBranch, stat };
     },
   );
@@ -1099,7 +1169,16 @@ export async function taskRoutes(fastify: FastifyInstance, ctx: AppContext): Pro
       if (!isTaskAttempt(run)) return { files: [], total: 0 };
       const task = await ctx.tasks.get(run.taskId);
       const { limit, offset } = req.query;
-      const files = await attemptDiffFiles(task.workingDir, run).catch(() => []);
+      const files = await orFallback(
+        () => attemptDiffFiles(task.workingDir, run),
+        {
+          op: 'attempts.diffFiles',
+          level: 'warn',
+          notFoundIf: worktreeGone,
+          context: { attemptId: run.id, taskId: run.taskId, workingDir: task.workingDir, branch: run.branch ?? undefined },
+        },
+        [] as Awaited<ReturnType<typeof attemptDiffFiles>>,
+      );
       const { items, total } = paginate(files, { limit, offset });
       return { files: items, total };
     },

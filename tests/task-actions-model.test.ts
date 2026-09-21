@@ -3,11 +3,11 @@ import { escalationActions, taskActions } from '../web/src/task-actions-model.js
 import { TASK_STATES } from '../web/src/types.js';
 
 describe('taskActions', () => {
-  it('offers exactly the three escalation actions on escalated, accept last, delete first', () => {
+  it('offers the escalation dispositions on escalated, accept last, delete first', () => {
     expect(taskActions('escalated')).toEqual(['delete', 'close', 'reject', 'accept']);
   });
 
-  it('never offers plain cancel or requeue on escalated — Close and Reject with guidance are the dispositions', () => {
+  it('never offers plain cancel or run on escalated — the dispositions are Reject, Close, Accept', () => {
     expect(taskActions('escalated')).not.toContain('cancel');
     expect(taskActions('escalated')).not.toContain('run');
   });
@@ -17,8 +17,8 @@ describe('taskActions', () => {
     expect(taskActions('draft')).toEqual(['delete', 'ready', 'edit', 'cancel']);
   });
 
-  it('offers pause, complete (operator override), and cancel while a task is working, no delete', () => {
-    expect(taskActions('working')).toEqual(['pause', 'complete', 'cancel']);
+  it('offers pause, extend, complete (operator override), and cancel while a task is working, no delete', () => {
+    expect(taskActions('working')).toEqual(['pause', 'extend', 'complete', 'cancel']);
   });
 
   it('offers delete, resume, and cancel while a task is paused', () => {

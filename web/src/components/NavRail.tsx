@@ -1,5 +1,6 @@
 import { Icon } from './Icon';
-import { RAIL_GROUPS, VIEW_LABELS, type View } from '../rail-model';
+import { GLOBAL_RAIL_GROUPS, GLOBAL_VIEW_LABELS, WORKSPACE_RAIL_GROUPS, VIEW_LABELS, type View } from '../rail-model';
+import type { Scope } from '../router-model';
 import { railBadge, sectionLabel } from '../ui';
 
 const railItem = (active: boolean, collapsed: boolean) =>
@@ -9,6 +10,7 @@ const railItem = (active: boolean, collapsed: boolean) =>
 
 interface NavRailProps {
   view: View;
+  scope: Scope;
   needsYouCount: number;
   railCollapsed: boolean;
   railDesktop: boolean;
@@ -16,7 +18,9 @@ interface NavRailProps {
   onToggleRail: () => void;
 }
 
-export function NavRail({ view, needsYouCount, railCollapsed, railDesktop, onPickView, onToggleRail }: NavRailProps) {
+export function NavRail({ view, scope, needsYouCount, railCollapsed, railDesktop, onPickView, onToggleRail }: NavRailProps) {
+  const railGroups = scope.kind === 'global' ? GLOBAL_RAIL_GROUPS : WORKSPACE_RAIL_GROUPS;
+  const viewLabel = (v: View) => (scope.kind === 'global' ? GLOBAL_VIEW_LABELS[v] ?? VIEW_LABELS[v] : VIEW_LABELS[v]);
   // Collapsed items keep their accessible name and gain a native tooltip;
   // when the label is visible neither is needed — below the breakpoint the
   // drawer shows labels, so the attributes must not apply there.
@@ -36,14 +40,16 @@ export function NavRail({ view, needsYouCount, railCollapsed, railDesktop, onPic
   return (
     <>
       <nav aria-label="Views" className="flex flex-col gap-0.5 rail:flex-1">
-        {RAIL_GROUPS.map((group) => {
+        {railGroups.map((group, i) => {
           const groupId = `rail-group-${group.label.toLowerCase()}`;
           return (
-            <div key={group.label} role="group" aria-labelledby={groupId} className="flex flex-col gap-0.5">
-              <div
-                id={groupId}
-                className={`${sectionLabel} px-2.5 pb-1 ${group.label === 'Instance' ? 'sr-only' : ''} ${railCollapsed ? 'rail:hidden' : ''}`}
-              >
+            <div
+              key={group.label}
+              role="group"
+              aria-labelledby={groupId}
+              className={`flex flex-col gap-0.5 ${i > 0 ? 'mt-1.5 border-t border-hairline pt-1.5' : ''}`}
+            >
+              <div id={groupId} className={`${sectionLabel} sr-only`}>
                 {group.label}
               </div>
               {group.views.map((v) => {
@@ -52,12 +58,12 @@ export function NavRail({ view, needsYouCount, railCollapsed, railDesktop, onPic
                   <button
                     key={v}
                     aria-current={view === v ? 'page' : undefined}
-                    {...railItemName(VIEW_LABELS[v], needsYou)}
+                    {...railItemName(viewLabel(v), needsYou)}
                     className={railItem(view === v, railCollapsed)}
                     onClick={() => onPickView(v)}
                   >
                     <Icon name={v} />
-                    <span className={railLabel}>{VIEW_LABELS[v]}</span>
+                    <span className={railLabel}>{viewLabel(v)}</span>
                     {needsYou !== null && (
                       <span
                         aria-label={`${needsYou} needs you`}

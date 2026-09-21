@@ -39,7 +39,7 @@ export function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     name: '',
     harnesses: { claude: { command: 'claude', args: [], env: {}, models: [{ id: 'claude-sonnet-4-6' }], defaultModel: 'claude-sonnet-4-6', cacheWarmSeconds: 300 } },
-    defaults: { harness: 'claude', workingDir: '/tmp', isolationMode: 'direct', priority: 'normal', conflictResolveTurns: 2 },
+    defaults: { harness: 'claude', isolationMode: 'direct', priority: 'normal', conflictResolveTurns: 2 },
     chat: { harness: 'claude', model: 'claude-sonnet-4-6' },
     autoRunner: { enabled: false, maxConcurrentAttempts: 2 },
     verify: { task: { preMerge: { commands: [], critics: [] }, postMerge: { commands: [], critics: [] } }, epic: { preMerge: { commands: [], critics: [] }, resolvePrompt: 'Resolve failures.' } },
@@ -47,6 +47,7 @@ export function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     drive: { prompt: '', unattendedReminder: '', continuePrompt: '', mergeFate: 'auto-merge', continueAttempts: 0 },
     maxAttempts: 3,
     contextReuseTokenLimit: 100_000,
+    editor: { maxFileSizeBytes: 2_097_152 },
     taskPrompt: '',
     ...overrides,
   };
@@ -57,6 +58,7 @@ export function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     id: 1,
     name: 'Main',
     workingDir: '/tmp/ws1',
+    color: '#FA6152',
     trackerEnabled: false,
     trackerPollIntervalSeconds: 60,
     resolvedTracker: null,
@@ -89,6 +91,7 @@ export function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     createdAt: 0,
     updatedAt: 0,
     ...overrides,
+    excludedDirectories: overrides.excludedDirectories ?? [],
   };
 }
 

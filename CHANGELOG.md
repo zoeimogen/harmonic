@@ -1,5 +1,291 @@
 # Changelog
 
+## [2.17.0](https://github.com/mintopia/harmonic/compare/v2.16.0...v2.17.0) (2026-09-21)
+
+
+### Features
+
+* **about:** reveal a scrolling musical stave on hover ([f6c09c2](https://github.com/mintopia/harmonic/commit/f6c09c28765222ad7a80e232cb7c714a8bba80d0))
+* **about:** swap easter-egg melodies to Dies Irae and Toccata ([806f383](https://github.com/mintopia/harmonic/commit/806f383be93298d93e6a93f7a937e0d8454c2a4e))
+
+
+### Bug Fixes
+
+* **execution:** keep a failed attempt's implementation step failed ([fbdb704](https://github.com/mintopia/harmonic/commit/fbdb70415ad070dc89687c80222152c4e995056b))
+* **execution:** snapshot a reused worktree before rebasing ([861dc0d](https://github.com/mintopia/harmonic/commit/861dc0dd669a8c7b1e8b25102aad91e989b517ea))
+* **web:** show an attempt's pinned model, not the token-dominant one ([eedacea](https://github.com/mintopia/harmonic/commit/eedacea1552783c3688bc43788f089f7a5bb6d10))
+
+## [2.16.0](https://github.com/mintopia/harmonic/compare/v2.15.0...v2.16.0) (2026-09-20)
+
+
+### Features
+
+* **about:** float muted note motes behind the treble clef ([c6913c8](https://github.com/mintopia/harmonic/commit/c6913c846ee3f8600c6a82441f3e91b7e6d9bc2b)), closes [#680](https://github.com/mintopia/harmonic/issues/680)
+
+
+### Bug Fixes
+
+* **jev-gate:** accept a pre-joined --mode value in parseArgs ([4dbf186](https://github.com/mintopia/harmonic/commit/4dbf1861c153a1035840d77ce64b49b82992cb80))
+
+## [2.15.0](https://github.com/mintopia/harmonic/compare/v2.14.0...v2.15.0) (2026-09-20)
+
+
+### Features
+
+* add ai_slop as a 9th Jev rubric category ([cbc8421](https://github.com/mintopia/harmonic/commit/cbc8421c2467bb1184b07b996932f046c0dccb04))
+* add Jev quality gate script for the verify stage ([98337bb](https://github.com/mintopia/harmonic/commit/98337bbd92e7a453875cc2986b7a746c00c3d3dc))
+* fail/warn/pass zone bands behind Jev report graphs ([dc45ad7](https://github.com/mintopia/harmonic/commit/dc45ad7c50a82986b17a4b8b83c17ebce3e57cc0))
+* **jev-gate:** drop duplication, decouple confidence from scoring, redesign report ([290a505](https://github.com/mintopia/harmonic/commit/290a5054d7e0800cdd2c68ff9a054c2de557ed93))
+* **jev-gate:** rewrite rubrics as single-dimension in-file questions ([ad6576a](https://github.com/mintopia/harmonic/commit/ad6576a0c64be37a58d314507df5e544128ce9c7))
+* **jev-gate:** sharpen rubrics to what a single file can answer ([bcfb6f6](https://github.com/mintopia/harmonic/commit/bcfb6f698b941e84f3eab01505cb5e40e869c97c))
+* **jev-gate:** split categories into sub-questions with min/mean aggregation ([7491fe2](https://github.com/mintopia/harmonic/commit/7491fe2fb20e1bd2c1d5decffe411d3f38f3ea65))
+* **jev-gate:** write the HTML report by default ([71bef5b](https://github.com/mintopia/harmonic/commit/71bef5beb2608a03515e2249753b21747c203cde))
+* per-metric change graphs — colour the change, grey the project ([46f3282](https://github.com/mintopia/harmonic/commit/46f3282421b78884ceaeb473bad96c0bfdb91d09))
+* render Jev report scatter charts with Chart.js (CDN) ([6311aa8](https://github.com/mintopia/harmonic/commit/6311aa835d03399453ecd3b96e536272c2e28ab3))
+* replace confidence weighting with an Unsure zone ([babf533](https://github.com/mintopia/harmonic/commit/babf533dc3a3a1dcdb4a602d3160b5530c393a1b))
+* shared async-resource hook, migrate swallowed-fetch sites ([#654](https://github.com/mintopia/harmonic/issues/654)) ([50b0c11](https://github.com/mintopia/harmonic/commit/50b0c112e0d2caf4bb01cbde681a4f4a25c1c740))
+* verifier overlays, configurable critic timeout, and Jev gate upgrades ([fd8b017](https://github.com/mintopia/harmonic/commit/fd8b0170a85f4d7fd6e53bdc9635dd6d8c6643ba))
+
+
+### Bug Fixes
+
+* bound event-loop and memory use in execution I/O ([3a0237d](https://github.com/mintopia/harmonic/commit/3a0237d66728ab97296ba8d3dea9238ea27d6e92)), closes [#652](https://github.com/mintopia/harmonic/issues/652)
+* deny WebSocket write access by default, drop token-in-query-string ([3023e33](https://github.com/mintopia/harmonic/commit/3023e3351d1640b94a19651f85c1d35a621f7dc5)), closes [#648](https://github.com/mintopia/harmonic/issues/648)
+* drop narration comment and correct a false doc claim ([#677](https://github.com/mintopia/harmonic/issues/677)) ([27ea2e3](https://github.com/mintopia/harmonic/commit/27ea2e3176cb020a97a62388aa9bf6da0350947d))
+* drop narration comments flagged by comment-check on [#665](https://github.com/mintopia/harmonic/issues/665) refactor ([ccca1fa](https://github.com/mintopia/harmonic/commit/ccca1fad8cbc1ae955d93788936eff47f9c99304))
+* eliminate silent catch blocks with a shared log-then-flag helper ([9e526ea](https://github.com/mintopia/harmonic/commit/9e526eabadc96671942758eed70c598c8d00120a)), closes [#655](https://github.com/mintopia/harmonic/issues/655)
+* gate schema-sync clean-break on a real constraint violation, not any error ([1e6060d](https://github.com/mintopia/harmonic/commit/1e6060d6cce28d3dccdac4e1e13a35d3fa42df90)), closes [#650](https://github.com/mintopia/harmonic/issues/650)
+* harden untrusted values reaching the filesystem and subprocesses ([7176f14](https://github.com/mintopia/harmonic/commit/7176f1434dd586cbe450804bc38d65262fa04e8f)), closes [#649](https://github.com/mintopia/harmonic/issues/649)
+* human-readable settings save errors in the save bar ([adaedda](https://github.com/mintopia/harmonic/commit/adaedda21ce0c4da340bcfaea4b3c42cf4c6b430))
+* Jev report uses full browser width, graphs cap at 4 per row ([2fcf381](https://github.com/mintopia/harmonic/commit/2fcf381f6fefce3f81f7aa6b0d2866583febf408))
+* **jev-gate:** remediate failing baseline files and teach testability rubric production roles ([3975dc0](https://github.com/mintopia/harmonic/commit/3975dc0f52abeaf39ad49295584cfb09e6508b14))
+* **jev-gate:** work the baseline warnings — logging, retry backoff, targeted refactors ([48f3543](https://github.com/mintopia/harmonic/commit/48f35431d8267dfe6b37554efbcc09531a1440ef))
+* keep stats worker alive on malformed input, cap heavy-read probe ([5ba5fb1](https://github.com/mintopia/harmonic/commit/5ba5fb1b610d460b1a4b0032d921b3586bdd7dbb)), closes [#651](https://github.com/mintopia/harmonic/issues/651)
+* **openapi:** make the snapshot deterministic by pinning UUID-valued defaults ([f59f365](https://github.com/mintopia/harmonic/commit/f59f36533df23db765676052134e903f1cc08cb4))
+* roll back optimistic steering turns and surface fetch failures correctly ([a29c1af](https://github.com/mintopia/harmonic/commit/a29c1afbaf3270cab4479aa243091ec49bf416c5))
+* stop dropping spaces in verification command args ([#677](https://github.com/mintopia/harmonic/issues/677)) ([2f8214c](https://github.com/mintopia/harmonic/commit/2f8214c341599c7c419b9ee6706063bf975f50f2))
+* surface oversized files in Jev gate instead of dropping them ([#675](https://github.com/mintopia/harmonic/issues/675)) ([4be003f](https://github.com/mintopia/harmonic/commit/4be003fd5bfad25bdbb0923cf44d5d8549b2dd5f))
+* surface oversized files in Jev gate instead of dropping them ([#675](https://github.com/mintopia/harmonic/issues/675)) ([7155f0f](https://github.com/mintopia/harmonic/commit/7155f0f0f3e7db422c563434d0665857caa65be5))
+* tidy critic runtime-field layout (harness/model/timeout in one row) ([29e7a39](https://github.com/mintopia/harmonic/commit/29e7a39fc46ce990de70668e360d56981c93f3b5))
+* type-check story API stub against the real API surface ([6357500](https://github.com/mintopia/harmonic/commit/635750025cf0e6d0200fc4e5edeff8d75e408d6d)), closes [#666](https://github.com/mintopia/harmonic/issues/666)
+* update docs site logo and favicon to treble clef ([4977d05](https://github.com/mintopia/harmonic/commit/4977d0562b0ae837668d7f17d19ca710360f1517))
+* update workspace verification intro copy for additive overlays (ADR-0037) ([c301b40](https://github.com/mintopia/harmonic/commit/c301b4002433dca9b86ecf3ef0577c27738ea8ce))
+* zone bands follow the weighted (confidence×score) zones, not raw score ([5774f3f](https://github.com/mintopia/harmonic/commit/5774f3f6a7185e20e425f2cd552795330e0b6ef7))
+
+## [2.14.0](https://github.com/mintopia/harmonic/compare/v2.13.0...v2.14.0) (2026-09-17)
+
+
+### Features
+
+* treble-clef logo and redesigned About dialog ([1b3b5b4](https://github.com/mintopia/harmonic/commit/1b3b5b446943125502e25fc01fde31919d7a155e))
+
+
+### Bug Fixes
+
+* correct conversation start, systemd PATH, and global running count ([d231b0d](https://github.com/mintopia/harmonic/commit/d231b0d3ae25128d5cb5e022bdc80f42d9aad155))
+* operator Accept merges the candidate as-is without re-verifying ([a798997](https://github.com/mintopia/harmonic/commit/a798997d1ca4019c86fefc5d764d537087428b7a))
+
+## [2.13.0](https://github.com/mintopia/harmonic/compare/v2.12.2...v2.13.0) (2026-09-17)
+
+
+### Features
+
+* add About overlay behind the top bar's ? icon ([a83b685](https://github.com/mintopia/harmonic/commit/a83b6851106686feec67f6163b592bcbd439e58d))
+
+
+### Bug Fixes
+
+* always offer the About overlay's upgrade regardless of banner dismissal ([bc6a92d](https://github.com/mintopia/harmonic/commit/bc6a92d9fd8c0933f10218ff35e6d50fe148b423))
+* keep the global dashboard reachable with a single workspace ([832a71b](https://github.com/mintopia/harmonic/commit/832a71b0b3b3dfe9efd83f6b3eb2bdcebf030a31)), closes [#635](https://github.com/mintopia/harmonic/issues/635)
+* opencode contextTokens ignores in-flight zero-token message ([da833be](https://github.com/mintopia/harmonic/commit/da833be35d7148c06b46f4476274f5400258b94a))
+* put the ticket ref on the Drive Prompt's skill invocation line ([a5cf9c5](https://github.com/mintopia/harmonic/commit/a5cf9c595974951a8146ca705140d44fd067bc0e))
+* restore global settings icon to the top bar ([f90b888](https://github.com/mintopia/harmonic/commit/f90b888ed2384047464437696af0b208f382f79c)), closes [#636](https://github.com/mintopia/harmonic/issues/636)
+
+## [2.12.2](https://github.com/mintopia/harmonic/compare/v2.12.1...v2.12.2) (2026-09-16)
+
+
+### Bug Fixes
+
+* create and chown the service data directory before install ([a4fc106](https://github.com/mintopia/harmonic/commit/a4fc1062814d1d9627b4fad0257cdcd1d9085c99))
+* default the homepage to the sole workspace, link dashboard workspaces ([fa9f96e](https://github.com/mintopia/harmonic/commit/fa9f96eaac53404d1b98b20e02247cade6b070c6))
+
+## [2.12.1](https://github.com/mintopia/harmonic/compare/v2.12.0...v2.12.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* don't watch the filesystem root on a fresh service install ([50538a5](https://github.com/mintopia/harmonic/commit/50538a52c3f976dd239006938e7322ff84d709eb))
+* seed no Workspace on a fresh install, anchor the service cwd ([d68b8cf](https://github.com/mintopia/harmonic/commit/d68b8cf7f5f5eb12a88b1bc2de0845bf96615bad))
+
+## [2.12.0](https://github.com/mintopia/harmonic/compare/v2.11.0...v2.12.0) (2026-09-16)
+
+
+### Features
+
+* add conversation command picker ([fb7ac2b](https://github.com/mintopia/harmonic/commit/fb7ac2b605d41851d4564224a29cb1aa8e37dde0))
+* add per-harness permission mode settings ([7fd48fc](https://github.com/mintopia/harmonic/commit/7fd48fcde2dfd77ec9f08444dfa44832f3b942a0))
+* audit unattended permission mode selection ([326b090](https://github.com/mintopia/harmonic/commit/326b090b6b302215751a52c402fe9c99b4134d7a))
+* configure harness permission modes ([264a6a4](https://github.com/mintopia/harmonic/commit/264a6a4c4c5cc564e0764a9ea385f76f73363b44))
+* expose advertised conversation commands ([72512d9](https://github.com/mintopia/harmonic/commit/72512d9c559354e66cb60dcb86cc711d4d4e1362))
+* fold requeue into reject ([e59300c](https://github.com/mintopia/harmonic/commit/e59300c6c55252e77fbd44f42a36d8ce257ec5d9))
+* rework workspace colour control, nav groups, and docs link ([97dfe3f](https://github.com/mintopia/harmonic/commit/97dfe3f77f0212bfaffb6cf2be6488c4b393caa7))
+* warm conversation session when composer opens ([f719e20](https://github.com/mintopia/harmonic/commit/f719e203d56fc212cdab4681a13897471b32398a))
+
+
+### Bug Fixes
+
+* correct commandPrefix REST exposure, Copilot mode order, resume query ([2d7512c](https://github.com/mintopia/harmonic/commit/2d7512ca3ad8acb1f8398544f69a2528c17e6d4d))
+* distinguish permission mode fallback in timeline ([656a48e](https://github.com/mintopia/harmonic/commit/656a48e98ed191cf392d17d1af7ab51e0aa506ec))
+* honor install user for systemd ([a3df9ed](https://github.com/mintopia/harmonic/commit/a3df9ed79ddb36f65dd84304b58d9338442e107b))
+* map Copilot ACP permission modes ([90596b9](https://github.com/mintopia/harmonic/commit/90596b97ea7ac120a96f048f51423e369f45f1d6))
+* record default permission mode fallback ([ee4892b](https://github.com/mintopia/harmonic/commit/ee4892b4acaeae963cdf96bc40f5dd4ca7c2864c))
+* scope activity task attempts by workspace ([696ca78](https://github.com/mintopia/harmonic/commit/696ca7834d0d5e24c6c8cef5ed43bd44d718d2e7))
+* share pending conversation creation ([2e07c2f](https://github.com/mintopia/harmonic/commit/2e07c2f9f72579dcb760d32afe2dbcf3c8293a3e))
+
+## [2.11.0](https://github.com/mintopia/harmonic/compare/v2.10.0...v2.11.0) (2026-09-15)
+
+
+### Features
+
+* add global dashboard ([c9c2b8b](https://github.com/mintopia/harmonic/commit/c9c2b8ba19af07771f89cbbcaec87c7cdc87ea63))
+* add global stats workspace breakdown ([3f07daa](https://github.com/mintopia/harmonic/commit/3f07daa255724b28acbd030a67c1048eb883e952))
+* add global tickets table ([d39bc1f](https://github.com/mintopia/harmonic/commit/d39bc1f55f3279e0c17fc060eafb3ed0a993e6d7))
+* add global timeline view ([576ab30](https://github.com/mintopia/harmonic/commit/576ab30f9bf32f7539435ed83babcfd46f30af4e))
+* add init.d service backend ([52e7772](https://github.com/mintopia/harmonic/commit/52e7772421d99fb402337ca5b25a583ce52dc596))
+* add no-guidance Requeue and fix escalated-task accept UX ([4be9d22](https://github.com/mintopia/harmonic/commit/4be9d2221f6ed2e35385ecfd62ce5123c8a729e4))
+* add scope path routing foundation ([831cc21](https://github.com/mintopia/harmonic/commit/831cc214ee0f1fd266c3c8e8b52c949ae3e6b9e2))
+* add service manager CLI seam ([356ad04](https://github.com/mintopia/harmonic/commit/356ad04231838a47270ea4759f92c19585761646))
+* add service manager CLI seam ([3a9166c](https://github.com/mintopia/harmonic/commit/3a9166c9483521bf82735e83a308d600757ae60c))
+* add systemd service backend ([f478779](https://github.com/mintopia/harmonic/commit/f478779cecfb4d01dc1199a482686821b82f5e6b))
+* add workspace colors and switcher badges ([0f02f0c](https://github.com/mintopia/harmonic/commit/0f02f0ca02db65e6448815e3b4258af63a953a37))
+* extend the wall-clock guardrail of a running task ([9144d85](https://github.com/mintopia/harmonic/commit/9144d85ad1dfa9a6d201e18151389834f015d932))
+* hand upgrades to systemd ([c66b76a](https://github.com/mintopia/harmonic/commit/c66b76abf9ce3d3e45f30888a2575657d03d3297))
+* reset wall-clock guardrail on resume and allow steering a paused task ([11a9e0e](https://github.com/mintopia/harmonic/commit/11a9e0e71757e053680488073afd1c89ddb21702))
+* scope activity and operations by workspace ([b7a9aa2](https://github.com/mintopia/harmonic/commit/b7a9aa2ca046cc575561a730f89b7be0c291cd0b))
+
+
+### Bug Fixes
+
+* add workspace HSL color picker ([d04fab5](https://github.com/mintopia/harmonic/commit/d04fab5d9078958c328053f32bc733831e471e05))
+* await chokidar ready so the workspace watcher is live before sync returns ([10db38c](https://github.com/mintopia/harmonic/commit/10db38ca16fbc034265fab5d037e870c6ed34093))
+* converge workspace color schema ([8f28cd6](https://github.com/mintopia/harmonic/commit/8f28cd6408935a8958aede7f37b3efd849e2e0a7))
+* log discarded git-status and workspace-diff failures ([665b240](https://github.com/mintopia/harmonic/commit/665b2407dae5898afaee7ab28c66838bc7091c50))
+* nudge dark status color collisions ([af614e3](https://github.com/mintopia/harmonic/commit/af614e383820458500bbf20942fd24ce8923fa8f))
+* regenerate workspace color OpenAPI schema ([af4382e](https://github.com/mintopia/harmonic/commit/af4382e00b995170502d247408d6626b42239c32))
+* serialize logged git error to a string attribute ([6263423](https://github.com/mintopia/harmonic/commit/6263423d9bf208a2293dd417cd149b4c0fa4365b))
+* show onboarding empty state when a fresh instance has no workspaces ([3e2eb79](https://github.com/mintopia/harmonic/commit/3e2eb798174d7e2c0f812a04d68293349925bb4d))
+* show workspace color accessibility feedback ([c6caaa2](https://github.com/mintopia/harmonic/commit/c6caaa2cd2f77b8a14dc9e6a76bfc12d80867f31))
+* stabilize firehose tests against races from earlier same-type messages ([7c9aded](https://github.com/mintopia/harmonic/commit/7c9adedf9650aee99fc61e7cac50c508499a1243))
+* stop UI overflow on Files and guardrail dialog at narrow widths ([da9bf09](https://github.com/mintopia/harmonic/commit/da9bf096d9909ff6360ff4a4f3f94e697d7184e4))
+
+## [2.10.0](https://github.com/mintopia/harmonic/compare/v2.9.2...v2.10.0) (2026-09-14)
+
+
+### Features
+
+* add source control panel actions ([5787faa](https://github.com/mintopia/harmonic/commit/5787faaf51e3ed15bd7597d1f5a25b97bc712303))
+* add workspace files browser ([2a91cc1](https://github.com/mintopia/harmonic/commit/2a91cc189890954a11028d92089e121932fb3549))
+* colour workspace files by git status ([ace3e38](https://github.com/mintopia/harmonic/commit/ace3e38c96d28cbf4395b52fb92db8153e46678d))
+* exclude workspace directories from file tree ([bee4e9c](https://github.com/mintopia/harmonic/commit/bee4e9c8ed7ee8a544aa8c196a468f7cb2e3cf87))
+* make workspace files editable ([9b4c360](https://github.com/mintopia/harmonic/commit/9b4c360da8915d29625b7cdbd4e4e6f057e7d71b))
+* preview workspace media files ([987c3f3](https://github.com/mintopia/harmonic/commit/987c3f38171479b2a7e60264b184ce3e6b80dba1))
+* rework the Files view into a keyboard-navigable in-app IDE ([a1b5a40](https://github.com/mintopia/harmonic/commit/a1b5a40258ad1c6113df2f43a30b88ffdc20a0a1))
+* watch workspace files live ([da92f25](https://github.com/mintopia/harmonic/commit/da92f25c346b59d9d16cd91ee5000b2689dc895e))
+
+
+### Bug Fixes
+
+* allow mobile pages to scroll ([ca99c7a](https://github.com/mintopia/harmonic/commit/ca99c7ac114b42bb053a2f94fe1448de066fcce7))
+* harden workspace file writes ([e5150ea](https://github.com/mintopia/harmonic/commit/e5150ea8f1fd8799819048bbdd7fab5d63b7a3f5))
+
+## [2.9.2](https://github.com/mintopia/harmonic/compare/v2.9.1...v2.9.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* **timeline:** anchor zoom on the readout so live runs stay in view ([aa38fd2](https://github.com/mintopia/harmonic/commit/aa38fd27479587973dfde9e078507e7e93efa4ec))
+* **timeline:** anchor zoom on the readout so live runs stay in view ([bac037a](https://github.com/mintopia/harmonic/commit/bac037a457473d4fa6d4c9ec1a1cd3427dcd096f))
+
+## [2.9.1](https://github.com/mintopia/harmonic/compare/v2.9.0...v2.9.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **timeline:** keep the scrub surface alive when a window is empty ([ce193f0](https://github.com/mintopia/harmonic/commit/ce193f01e077a62c0aa33253278564bf26ab263c))
+
+## [2.9.0](https://github.com/mintopia/harmonic/compare/v2.8.0...v2.9.0) (2026-09-13)
+
+
+### Features
+
+* **skills:** add /pre-release prep checklist ([d87f68f](https://github.com/mintopia/harmonic/commit/d87f68f34fb7abb684e81874e92785b923b5e1ea))
+* **timeline:** zoom + pan the fleet timeline instead of fixed ranges ([887d0a8](https://github.com/mintopia/harmonic/commit/887d0a8a36b7f8607bb572de0eb973683ace11a9))
+* **upgrade:** settle an armed upgrade after relaunch onto the new version ([028ccbd](https://github.com/mintopia/harmonic/commit/028ccbde5b67536c42c55a9e0aeba3d2dd2957f8))
+* **web:** make the operator console usable on mobile ([be623ec](https://github.com/mintopia/harmonic/commit/be623ec139377fd75c37225f737a13a03e6c9d98))
+
+
+### Bug Fixes
+
+* **board:** decay session warmth from lastActiveAt, not now ([2a82132](https://github.com/mintopia/harmonic/commit/2a8213204ae96931ff1357b6c298f6dc9cbd4a8a))
+* **conversations:** reach the resumable-ended composer, plus pre-release polish ([0ca193a](https://github.com/mintopia/harmonic/commit/0ca193a1ca227975002d301c0ef23d8a45024fb9))
+* **conversations:** resume an ended conversation from its stored session ([1b28c5f](https://github.com/mintopia/harmonic/commit/1b28c5f101ff7566428ee9a53543dd661cb22fc9))
+* **conversations:** show selected harness in prompt ([3b6ea81](https://github.com/mintopia/harmonic/commit/3b6ea81158ecb4519e21b17979103ead79753446))
+* retain pending permission prompts for late subscribers ([cc9c13c](https://github.com/mintopia/harmonic/commit/cc9c13c966bbdf338764c4279204986cfc8c3377))
+* **test:** restore COMPOSER source read dropped in epic/571 merge ([4a6eb24](https://github.com/mintopia/harmonic/commit/4a6eb248516b9945ecf41079a32f1e7b1a15f30b))
+* **ui:** improve mobile conversations ([7b33b01](https://github.com/mintopia/harmonic/commit/7b33b010b3f082c33a8bfb7c063a85bf9093e319))
+
+## [2.8.0](https://github.com/mintopia/harmonic/compare/v2.7.0...v2.8.0) (2026-09-12)
+
+
+### Features
+
+* **conversations:** match the Conversation Experience mockups ([13c45b2](https://github.com/mintopia/harmonic/commit/13c45b2c7d1cf6e98c7ff9ab754ffa212090678a))
+* **settings:** ordered, named, drag-reorderable verifier lists ([046aa84](https://github.com/mintopia/harmonic/commit/046aa845aa569ed9dc341f707534a44c83e458ee))
+* **ui:** add fleet Timeline, unify page headers, reorder rail ([849e232](https://github.com/mintopia/harmonic/commit/849e232ec7c8c46ce646ff95d99a58c89a440d29))
+* **ui:** drop breadcrumb bar, slim conversation header ([5400733](https://github.com/mintopia/harmonic/commit/54007334beb8ab50aabf66dcaef573cfd774204e))
+* **ui:** split ready hue to azure, add subtle depth, refine board cards ([437fe27](https://github.com/mintopia/harmonic/commit/437fe27bddd118ba6be3b876e1db3a2fa0824501))
+
+
+### Bug Fixes
+
+* **conversations:** tidy the new-conversation compose form ([2df5eba](https://github.com/mintopia/harmonic/commit/2df5eba3c40d8fcad5869d41339e8fbec7f42560))
+* **settings:** address review of the verifier-list editors ([c24693d](https://github.com/mintopia/harmonic/commit/c24693dd5115f6273d147c3f10ae6c4761618a0e))
+* **ui:** repair mobile layouts, guard verifier removal, fix stale critic test ([40c5534](https://github.com/mintopia/harmonic/commit/40c55341df383e0d0b24a3ae96f2a4979b4d5baa))
+
+## [2.7.0](https://github.com/mintopia/harmonic/compare/v2.6.0...v2.7.0) (2026-09-11)
+
+
+### Features
+
+* add automatic conversation permissions ([2afdd4c](https://github.com/mintopia/harmonic/commit/2afdd4c810eb1cb0b007f938e31742007f759208))
+* add conversations workspace view ([7d2e258](https://github.com/mintopia/harmonic/commit/7d2e258e385a8561fa7f76fb4c55d519777f39cd))
+* add rich transcript tool cards ([413ff89](https://github.com/mintopia/harmonic/commit/413ff890c7ce9d75350c068eb68db8fdb965bd14))
+* add scheduled npm update checks ([0116719](https://github.com/mintopia/harmonic/commit/011671901e0e79e9fe2085079dfbca6d376c871d))
+* add update banner ([a6e1131](https://github.com/mintopia/harmonic/commit/a6e1131dda0dbf323d32b8f6310405011f4efe65))
+* **config:** add Fable 5.1, GPT Astra, Muse Spark, DeepSeek V4.1 Flash ([3a7fcaf](https://github.com/mintopia/harmonic/commit/3a7fcaffa3064f1706d1864c1621a7439279231c))
+* detect distribution mode at boot ([fdbc6f4](https://github.com/mintopia/harmonic/commit/fdbc6f428079b7ad8c5f2bab5ea4c0f095f81eec))
+* perform armed in-place upgrade swap ([8388f5f](https://github.com/mintopia/harmonic/commit/8388f5f554f54207317c8dc5dca2b1df4c7fd0d4))
+* render ACP edit diffs in transcripts ([ad8e400](https://github.com/mintopia/harmonic/commit/ad8e4003143e083d90253382ee72724b970f4c89))
+* **resume:** move the continue-vs-fresh choice into a resume dialog ([957cd41](https://github.com/mintopia/harmonic/commit/957cd41b6ccb24f865829cc533bf1284bdd2f6df))
+* **upgrade:** arm and quiesce updates ([ef6e57c](https://github.com/mintopia/harmonic/commit/ef6e57cbad4d5c851d0b8654d6d12eb16c6f9f11))
+* **web:** add conversation context drawer ([d581e66](https://github.com/mintopia/harmonic/commit/d581e661fafb767a68ebad470e83d1b384ab5795))
+* **web:** add favicon using the Harmonic mark ([0c6282c](https://github.com/mintopia/harmonic/commit/0c6282cd323f2f7b8eee5e70f6d2787548b7b62c))
+* **web:** highlight markdown and diffs ([36ff40e](https://github.com/mintopia/harmonic/commit/36ff40e3979c6716870e21b3692e9af1ddcb8a63))
+
+
+### Bug Fixes
+
+* cold-resume conversations after restart ([3fc2509](https://github.com/mintopia/harmonic/commit/3fc25098463fcfd800ea669c1ccb98b8949403ee))
+* **conversation:** use responder names in copy ([2bd6242](https://github.com/mintopia/harmonic/commit/2bd6242b5c1583954bd36d88b4129042c408684c))
+* make conversation transcripts follow smartly ([660f34d](https://github.com/mintopia/harmonic/commit/660f34d509867aad5b3de3d8890c2042b38c02a8))
+* **resume:** key the preview fetch on the task, not the loader identity ([f7d44a0](https://github.com/mintopia/harmonic/commit/f7d44a08afbaba6b0d4561675badd66b89d699e0))
+* retain closed unintegrated epics on board ([0f18f28](https://github.com/mintopia/harmonic/commit/0f18f285cfee7c596c3b7f5c6880bd028bb89cef))
+* scope conversation deep links to workspace ([25a1fc3](https://github.com/mintopia/harmonic/commit/25a1fc35298957ca5ee222abee1e3ef1c48c65d3))
+* **tracker:** demote structural epic mirrors ([f2acfd1](https://github.com/mintopia/harmonic/commit/f2acfd1ef81a955b2d69c06629d4491b86a83747))
+* **upgrade:** keep Update Check tests independent of the release version ([3c52a84](https://github.com/mintopia/harmonic/commit/3c52a84866adc677c0bd76fb154c1cb3835ab131))
+* **upgrade:** satisfy build and OpenAPI checks ([25a3888](https://github.com/mintopia/harmonic/commit/25a38880cfcb1b91e0e9c0eabcac2ca01fae8e07))
+* widen verification settings ([d50dcf5](https://github.com/mintopia/harmonic/commit/d50dcf546d4dd31931846636aa51807977f1204c))
+
 ## [2.6.0](https://github.com/mintopia/harmonic/compare/v2.5.0...v2.6.0) (2026-09-10)
 
 

@@ -74,6 +74,10 @@ async function withGitOperation<T>(
 // git refuses to commit without user.name/user.email configured.
 const IDENTITY = ['-c', 'user.name=Harmonic', '-c', 'user.email=harmonic@localhost'];
 
+function literalPaths(paths: string[]): string[] {
+  return paths.map((path) => `:(literal)${path}`);
+}
+
 // `merge-tree --write-tree` needs git >= 2.38; on an older git the flag is
 // unknown and every call errors, which would look like a merge conflict.
 let warnedMergeTreeUnsupported = false;
@@ -446,6 +450,56 @@ export const Git = {
     await git(dir, ...IDENTITY, 'commit', '-m', message);
   },
 
+  stage: (dir: string, paths: string[]) =>
+    withRepoLock(dir, async () => {
+      await git(dir, 'add', '--', ...literalPaths(paths));
+      logger.info('git: staged workspace paths', { 'git.dir': dir, 'git.path_count': paths.length });
+    }),
+
+  unstage: (dir: string, paths: string[]) =>
+    withRepoLock(dir, async () => {
+      await git(dir, 'restore', '--staged', '--', ...literalPaths(paths));
+      logger.info('git: unstaged workspace paths', { 'git.dir': dir, 'git.path_count': paths.length });
+    }),
+
+  discard: (dir: string, paths: string[]) =>
+    withRepoLock(dir, async () => {
+      const selectedPaths = literalPaths(paths);
+      const trackedPaths = (await git(dir, 'ls-files', '-z', '--', ...selectedPaths)).split('\0').filter(Boolean);
+      if (trackedPaths.length > 0) {
+        await git(dir, 'restore', '--worktree', '--', ...literalPaths(trackedPaths));
+      }
+      await git(dir, 'clean', '-fd', '--', ...selectedPaths);
+      logger.info('git: discarded workspace paths', { 'git.dir': dir, 'git.path_count': paths.length });
+    }),
+
+  commit: (dir: string, message: string) =>
+    withRepoLock(dir, async () => {
+      await git(dir, ...IDENTITY, 'commit', '-m', message);
+      logger.info('git: committed workspace changes', { 'git.dir': dir });
+    }),
+
+  /** Unified diff for one working-directory path: staged + unstaged changes
+   * against HEAD, falling back to an all-added diff for an untracked file. */
+  async workspaceDiff(dir: string, relPath: string): Promise<string> {
+    let tracked = '';
+    try {
+      tracked = await git(dir, 'diff', 'HEAD', '--', relPath);
+    } catch {
+      tracked = '';
+    }
+    if (tracked) return tracked;
+    try {
+      const { stdout } = await execFileAsync('git', ['-C', dir, 'diff', '--no-index', '--', '/dev/null', relPath], { maxBuffer: 10 * 1024 * 1024, timeout: GIT_TIMEOUT_MS });
+      return stdout;
+    } catch (err) {
+      const e = err as { code?: number; stdout?: string };
+      if (e.code === 1) return e.stdout ?? '';
+      logger.debug('git: workspace diff failed', { 'git.dir': dir, 'git.path': relPath, error: err instanceof Error ? err.message : String(err) });
+      return '';
+    }
+  },
+
   /** Per-file `additions<TAB>deletions<TAB>path` of what the run's branch adds
    * over the merge base. `--numstat` reports exact line counts, unlike `--stat`,
    * whose `+`/`-` graph is a width-capped histogram, not a count. */
@@ -598,7 +652,12 @@ export const Git = {
           const detail = err instanceof GitError ? err.message : String(err);
           try {
             await git(worktreeDir, 'merge', '--abort');
-          } catch {
+          } catch (abortErr) {
+            logger.debug('git: merge --abort failed after a non-conflict merge failure', {
+              'git.dir': worktreeDir,
+              'git.branch': branch,
+              error: failureReason(abortErr),
+            });
           }
           return { ok: false, detail };
         }
@@ -643,7 +702,13 @@ export const Git = {
       'git.rebase',
       { 'git.branch': 'HEAD', 'git.ref': ontoOid },
       async () => {
-        await git(worktreeDir, 'rebase', '--abort').catch(() => {});
+        await git(worktreeDir, 'rebase', '--abort').catch((abortErr) => {
+          logger.debug('git: pre-rebase abort of a stray in-progress rebase failed', {
+            'git.dir': worktreeDir,
+            'git.ref': ontoOid,
+            error: failureReason(abortErr),
+          });
+        });
         try {
           await git(worktreeDir, ...IDENTITY, 'rebase', ontoOid);
           const rebasedTip = await Git.revParse(worktreeDir, 'HEAD');
@@ -703,7 +768,12 @@ export const Git = {
           if (!conflict) {
             try {
               await git(worktreeDir, 'merge', '--abort');
-            } catch {
+            } catch (abortErr) {
+              logger.debug('git: merge --abort failed after a non-conflict merge failure', {
+                'git.dir': worktreeDir,
+                'git.branch': branch,
+                error: failureReason(abortErr),
+              });
             }
           }
           return { ok: false, conflict, detail };
@@ -750,7 +820,11 @@ export const Git = {
       logger.debug('git: aborting in-progress merge', { 'git.dir': worktreeDir });
       try {
         await git(worktreeDir, 'merge', '--abort');
-      } catch {
+      } catch (err) {
+        logger.debug('git: merge --abort found nothing to abort (or failed)', {
+          'git.dir': worktreeDir,
+          error: failureReason(err),
+        });
       }
     });
   },

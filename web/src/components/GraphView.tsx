@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Task } from '../types';
 import { api } from '../api';
+import { excludeEpicDrivers, type Epic } from '../epic-model';
 import { toastError } from '../toast';
 import {
   SIGNAL,
@@ -22,7 +23,8 @@ import { ticketRowId } from '../id-format.js';
 import { useLiveEffect } from '../useLiveEffect';
 import { Switch } from './Switch';
 import { EmptyState } from './EmptyState';
-import { displayTitle, labelType, touchTarget, touchTargetInline } from '../ui';
+import { touchTarget, touchTargetInline } from '../ui';
+import { PageHeader } from './PageHeader';
 
 const NODE_W = 196;
 const NODE_H = 60;
@@ -42,10 +44,12 @@ function initialTransform(w: number, h: number, vw: number, vh: number): Transfo
 
 export function GraphView({
   workspaceId,
+  epics,
   onOpen,
 }: {
   /** Scopes the graph to the active Workspace; no fetch until resolved. */
   workspaceId: number | null;
+  epics: Epic[];
   onOpen: (task: Task) => void;
 }) {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -57,10 +61,10 @@ export function GraphView({
     setLoading(true);
     api
       .tasks({ workspaceId })
-      .then(({ tasks }) => setTasks(tasks))
+      .then(({ tasks }) => setTasks(excludeEpicDrivers(tasks, epics)))
       .catch(toastError)
       .finally(() => setLoading(false));
-  }, [workspaceId]);
+  }, [workspaceId, epics]);
 
   const visible = useMemo(() => visibleTasks(tasks, showTerminal), [tasks, showTerminal]);
   const edges = useMemo(() => graphEdges(visible), [visible]);
@@ -159,19 +163,23 @@ export function GraphView({
 
   return (
     <div className="flex h-full flex-col">
-      <h1 className="sr-only">Dependency graph</h1>
-      <div className="mb-4 flex flex-wrap items-baseline gap-3">
-        <span className="flex items-baseline gap-1.5">
-          <span className={`${displayTitle} tabular-nums ${visible.length > 0 || loading ? '' : 'text-faint'}`}>
-            {loading ? '…' : visible.length}
-          </span>
-          <span className={`${labelType} text-muted`}>tasks</span>
-        </span>
-        <div className="flex-1" />
-        <Switch checked={showTerminal} onChange={setShowTerminal} label="Show terminal tasks">
-          <span className="font-medium text-muted">Show terminal</span>
-        </Switch>
-      </div>
+      <PageHeader
+        title="Graph"
+        description="What blocks what across this workspace"
+        actions={
+          <>
+            <span className="flex items-baseline gap-1.5 text-small">
+              <span className={`tabular-nums ${visible.length > 0 || loading ? 'text-ink' : 'text-faint'}`}>
+                {loading ? '…' : visible.length}
+              </span>
+              <span className="text-muted">tasks</span>
+            </span>
+            <Switch checked={showTerminal} onChange={setShowTerminal} label="Show terminal tasks">
+              <span className="font-medium text-muted">Show terminal</span>
+            </Switch>
+          </>
+        }
+      />
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg bg-canvas ring-1 ring-hairline">
         <div

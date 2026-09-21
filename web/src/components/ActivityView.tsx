@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
+import { api } from "../api";
 import { formatCost } from "../cost";
 import type { ActivityProcess, AppConfig, ProcessNode } from "../types";
+import { useAsyncResource } from "../useAsyncResource";
 import { subscribe } from "../ws";
 import {
   card,
   chip,
-  displayTitle,
   labelType,
   selectField,
   touchTarget,
 } from "../ui";
 import { EmptyState } from "./EmptyState";
+import { LoadError } from "./LoadError";
+import { PageHeader } from "./PageHeader";
 import {
   activitySummary,
   activityWorkspaces,
@@ -190,8 +193,8 @@ function Lane({
     : usageTotalTokens(process.usage);
   const href =
     process.type === "attempt"
-      ? `/task/${process.taskId}`
-      : `/?conversation=${process.conversationId}`;
+      ? `/workspace/${process.workspaceId}/task/${process.taskId}`
+      : `/workspace/${process.workspaceId}/conversations/${process.conversationId}`;
   const name = node?.name ?? process.title;
   const model = node?.model ?? process.model;
   const cost = node
@@ -264,7 +267,8 @@ function Stat({
   );
 }
 
-export function ActivityView({ config }: { config: AppConfig | null }) {
+export function ActivityView({ config, workspaceId = null }: { config: AppConfig | null; workspaceId?: number | null }) {
+  const description = workspaceId === null ? "Every attempt and chat in flight across your workspaces" : "Every attempt and chat in flight in this Workspace";
   const [processes, setProcesses] = useState<ActivityProcess[] | null>(null);
   const [filter, setFilter] = useState<ActivityFilter>(NO_ACTIVITY_FILTER);
   const [now, setNow] = useState(() => Date.now());
@@ -272,16 +276,19 @@ export function ActivityView({ config }: { config: AppConfig | null }) {
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
-  useLiveEffect((live) => {
-    const load = () =>
-      fetch("/api/activity")
-        .then((response) => (response.ok ? response.json() : null))
-        .then((body: { processes: ActivityProcess[] } | null) => {
-          if (live() && body) setProcesses(body.processes);
-        })
-        .catch(() => {});
-    load();
-    const poll = setInterval(load, 5_000);
+  const activity = useAsyncResource(
+    () => api.activity(workspaceId ?? undefined),
+    [workspaceId],
+    { pollMs: 5_000 },
+  );
+  useEffect(() => {
+    if (activity.data) setProcesses(activity.data.processes);
+  }, [activity.data]);
+  useEffect(() => {
+    setProcesses(null);
+  }, [workspaceId]);
+
+  useLiveEffect(() => {
     const unsubscribe = subscribe((message) => {
       if (message.type === "attempt_usage")
         setProcesses((current) =>
@@ -315,19 +322,22 @@ export function ActivityView({ config }: { config: AppConfig | null }) {
                 ),
             ) ?? current,
         );
-    }, load);
+    }, activity.reload);
     return () => {
-      clearInterval(poll);
       unsubscribe();
     };
-  }, []);
+  }, [workspaceId, activity.reload]);
   if (processes === null)
     return (
       <div>
-        <h1 className={`${displayTitle} mb-5`}>Activity</h1>
-        <div className={`${card} p-4`}>
-          <div className="h-14 animate-pulse motion-reduce:animate-none" />
-        </div>
+        <PageHeader title="Activity" description={description} />
+        {activity.error ? (
+          <LoadError message={activity.error} onRetry={activity.reload} />
+        ) : (
+          <div className={`${card} p-4`}>
+            <div className="h-14 animate-pulse motion-reduce:animate-none" />
+          </div>
+        )}
       </div>
     );
 
@@ -343,12 +353,12 @@ export function ActivityView({ config }: { config: AppConfig | null }) {
   const lanes = fleetLanes(filterActivity(processes, activeFilter));
   return (
     <div>
-      <div className="mb-5 flex items-baseline gap-3">
-        <h1 className={displayTitle}>Activity</h1>
-        <span className={`${labelType} text-muted`}>
-          every live Agent, all Workspaces
-        </span>
-      </div>
+      <PageHeader title="Activity" description={description} />
+      {activity.error && (
+        <div className="mb-5">
+          <LoadError message={activity.error} onRetry={activity.reload} />
+        </div>
+      )}
       <div className={`${card} mb-5 flex flex-wrap gap-x-10 gap-y-4 p-5`}>
         <Stat label="Agents" value={String(summary.agentCount)} />
         <Stat label="Subagents" value={String(summary.subagentCount)} />
@@ -384,7 +394,7 @@ export function ActivityView({ config }: { config: AppConfig | null }) {
                 setFilter((current) => ({ ...current, type }))
               }
             />
-            {workspaces.length > 1 && (
+            {workspaceId === null && workspaces.length > 1 && (
               <select
                 aria-label="Filter by workspace"
                 className={selectField}

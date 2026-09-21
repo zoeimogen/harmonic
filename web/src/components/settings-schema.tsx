@@ -1,6 +1,7 @@
-import { Fragment, type ReactNode } from 'react';
-import type { AppConfig, Channel, Workspace } from '../types';
+import { Fragment, useState, type ReactNode } from 'react';
+import type { AppConfig, Channel, ConfigLayers, Workspace } from '../types';
 import { btnGhost, field } from '../ui';
+import { Icon } from './Icon';
 import { FieldError, PromptField, fieldLabel } from './SettingsSection';
 import {
   DRIVE_PLACEHOLDERS,
@@ -24,6 +25,7 @@ import { PermissionRules } from './PermissionRules';
 import { SecuritySection } from './SecuritySection';
 import { GlobalVerificationSettings, WorkspaceVerificationSettings } from './VerificationSettings';
 import { settingsRegistry, type SettingKey, type SettingTab } from '../../../src/domain/settings-registry.js';
+import { WORKSPACE_COLORS } from '../../../src/domain/workspace-colors.js';
 
 export type Surface = 'global' | 'workspace';
 
@@ -35,6 +37,7 @@ export interface GlobalRenderCtx {
   baseline: AppConfig;
   setConfig: (config: AppConfig) => void;
   errors: Record<string, string>;
+  harnessPermissionModes: ConfigLayers['harnessPermissionModes'];
   channels: {
     list: Channel[];
     onToggleEvent: (id: number, event: string) => void;
@@ -666,6 +669,70 @@ const guardrailScalarFields: OverridableDescriptor[] = [
   },
 ];
 
+function BudgetFields({
+  idPrefix,
+  errorPrefix,
+  value,
+  onChange,
+  errors,
+}: {
+  idPrefix: string;
+  errorPrefix: string;
+  value: AppConfig['guardrails']['budget'];
+  onChange: (budget: AppConfig['guardrails']['budget']) => void;
+  errors: Record<string, string>;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <label className={fieldLabel} htmlFor={`${idPrefix}-wallclock`}>
+          Wall-clock (minutes)
+        </label>
+        <input
+          id={`${idPrefix}-wallclock`}
+          type="number"
+          min={1}
+          className={`${field} w-40 tabular-nums`}
+          value={value.wallClockMinutes}
+          onChange={(e) => onChange(setBudgetField(value, 'wallClockMinutes', e.target.value))}
+        />
+        <FieldError message={errors[`${errorPrefix}.wallClockMinutes`]} />
+      </div>
+      <div>
+        <label className={fieldLabel} htmlFor={`${idPrefix}-tokens`}>
+          Token cap <span className="normal-case text-muted">(blank = no cap)</span>
+        </label>
+        <input
+          id={`${idPrefix}-tokens`}
+          type="number"
+          min={1}
+          placeholder="No cap"
+          className={`${field} w-40 tabular-nums`}
+          value={value.tokens ?? ''}
+          onChange={(e) => onChange(setBudgetField(value, 'tokens', e.target.value))}
+        />
+        <FieldError message={errors[`${errorPrefix}.tokens`]} />
+      </div>
+      <div>
+        <label className={fieldLabel} htmlFor={`${idPrefix}-cost`}>
+          Cost cap (USD) <span className="normal-case text-muted">(blank = no cap)</span>
+        </label>
+        <input
+          id={`${idPrefix}-cost`}
+          type="number"
+          min={0}
+          step="0.01"
+          placeholder="No cap"
+          className={`${field} w-40 tabular-nums`}
+          value={value.costUsd ?? ''}
+          onChange={(e) => onChange(setBudgetField(value, 'costUsd', e.target.value))}
+        />
+        <FieldError message={errors[`${errorPrefix}.costUsd`]} />
+      </div>
+    </div>
+  );
+}
+
 function GlobalGuardrails({ ctx }: { ctx: GlobalRenderCtx }) {
   const { config, errors } = ctx;
   const g = config.guardrails;
@@ -675,52 +742,8 @@ function GlobalGuardrails({ ctx }: { ctx: GlobalRenderCtx }) {
     <div className="flex flex-col gap-4 sm:max-w-md">
       <div>
         <span className={fieldLabel}>Budget</span>
-        <div className="mt-2 flex flex-col gap-3">
-          <div>
-            <label className={fieldLabel} htmlFor="settings-budget-wallclock">
-              Wall-clock (minutes)
-            </label>
-            <input
-              id="settings-budget-wallclock"
-              type="number"
-              min={1}
-              className={`${field} w-40 tabular-nums`}
-              value={g.budget.wallClockMinutes}
-              onChange={(e) => setBudget(setBudgetField(g.budget, 'wallClockMinutes', e.target.value))}
-            />
-            <FieldError message={errors['guardrails.budget.wallClockMinutes']} />
-          </div>
-          <div>
-            <label className={fieldLabel} htmlFor="settings-budget-tokens">
-              Token cap <span className="normal-case text-muted">(blank = no cap)</span>
-            </label>
-            <input
-              id="settings-budget-tokens"
-              type="number"
-              min={1}
-              placeholder="No cap"
-              className={`${field} w-40 tabular-nums`}
-              value={g.budget.tokens ?? ''}
-              onChange={(e) => setBudget(setBudgetField(g.budget, 'tokens', e.target.value))}
-            />
-            <FieldError message={errors['guardrails.budget.tokens']} />
-          </div>
-          <div>
-            <label className={fieldLabel} htmlFor="settings-budget-cost">
-              Cost cap (USD) <span className="normal-case text-muted">(blank = no cap)</span>
-            </label>
-            <input
-              id="settings-budget-cost"
-              type="number"
-              min={0}
-              step="0.01"
-              placeholder="No cap"
-              className={`${field} w-40 tabular-nums`}
-              value={g.budget.costUsd ?? ''}
-              onChange={(e) => setBudget(setBudgetField(g.budget, 'costUsd', e.target.value))}
-            />
-            <FieldError message={errors['guardrails.budget.costUsd']} />
-          </div>
+        <div className="mt-2">
+          <BudgetFields idPrefix="settings-budget" errorPrefix="guardrails.budget" value={g.budget} onChange={setBudget} errors={errors} />
         </div>
       </div>
       <div>
@@ -762,53 +785,7 @@ function WorkspaceGuardrails({ ctx }: { ctx: WorkspaceRenderCtx }) {
           onChange={(guardrailBudget) => ctx.setWorkspace({ ...workspace, guardrailBudget })}
         >
           {({ value, onChange }) => (
-            <div className="flex flex-col gap-3">
-              <div>
-                <label className={fieldLabel} htmlFor="workspace-budget-wallclock">
-                  Wall-clock (minutes)
-                </label>
-                <input
-                  id="workspace-budget-wallclock"
-                  type="number"
-                  min={1}
-                  className={`${field} w-40 tabular-nums`}
-                  value={value.wallClockMinutes}
-                  onChange={(e) => onChange(setBudgetField(value, 'wallClockMinutes', e.target.value))}
-                />
-                <FieldError message={errors['guardrailBudget.wallClockMinutes']} />
-              </div>
-              <div>
-                <label className={fieldLabel} htmlFor="workspace-budget-tokens">
-                  Token cap <span className="normal-case text-muted">(blank = no cap)</span>
-                </label>
-                <input
-                  id="workspace-budget-tokens"
-                  type="number"
-                  min={1}
-                  placeholder="No cap"
-                  className={`${field} w-40 tabular-nums`}
-                  value={value.tokens ?? ''}
-                  onChange={(e) => onChange(setBudgetField(value, 'tokens', e.target.value))}
-                />
-                <FieldError message={errors['guardrailBudget.tokens']} />
-              </div>
-              <div>
-                <label className={fieldLabel} htmlFor="workspace-budget-cost">
-                  Cost cap (USD) <span className="normal-case text-muted">(blank = no cap)</span>
-                </label>
-                <input
-                  id="workspace-budget-cost"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="No cap"
-                  className={`${field} w-40 tabular-nums`}
-                  value={value.costUsd ?? ''}
-                  onChange={(e) => onChange(setBudgetField(value, 'costUsd', e.target.value))}
-                />
-                <FieldError message={errors['guardrailBudget.costUsd']} />
-              </div>
-            </div>
+            <BudgetFields idPrefix="workspace-budget" errorPrefix="guardrailBudget" value={value} onChange={onChange} errors={errors} />
           )}
         </InheritField>
       </div>
@@ -866,8 +843,112 @@ function WorkspaceIdentity({ ctx }: { ctx: WorkspaceRenderCtx }) {
           Fixed once a Workspace is created — make a new Workspace to point at a different repo.
         </p>
       </div>
+      <div className="sm:col-span-2">
+        <span className={fieldLabel}>Workspace colour</span>
+        <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Preferred workspace colours">
+          {WORKSPACE_COLORS.map((swatch) => {
+            const selected = workspace.color.toUpperCase() === swatch;
+            return (
+              <button
+                key={swatch}
+                type="button"
+                aria-label={swatch}
+                aria-pressed={selected}
+                title={swatch}
+                className={`size-7 rounded-full transition-transform duration-150 hover:scale-110 ${selected ? 'ring-2 ring-accent ring-offset-2 ring-offset-surface' : 'border border-edge'}`}
+                style={{ backgroundColor: swatch }}
+                onClick={() => ctx.setWorkspace({ ...workspace, color: swatch })}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-3 flex flex-wrap items-start gap-5">
+          <HslColorSliders color={workspace.color} onChange={(color) => ctx.setWorkspace({ ...workspace, color })} />
+          <div className="flex flex-col gap-1.5">
+            <label
+              className="relative h-12 w-24 cursor-pointer overflow-hidden rounded-md border border-edge ring-1 ring-inset ring-black/10"
+              style={{ backgroundColor: workspace.color }}
+              title="Open the system colour picker"
+            >
+              <input
+                id="workspace-color"
+                type="color"
+                aria-label="Workspace colour"
+                className="absolute inset-0 size-full cursor-pointer opacity-0"
+                value={/^#[0-9a-f]{6}$/i.test(workspace.color) ? workspace.color : '#000000'}
+                onChange={(e) => ctx.setWorkspace({ ...workspace, color: e.target.value.toUpperCase() })}
+              />
+            </label>
+            <input
+              aria-label="Workspace colour hex value"
+              className="w-24 rounded-md border border-edge bg-field px-2 py-1.5 text-center font-data uppercase text-ink focus:border-accent focus:outline-none"
+              value={workspace.color}
+              maxLength={7}
+              onChange={(e) => ctx.setWorkspace({ ...workspace, color: e.target.value.toUpperCase() })}
+            />
+          </div>
+        </div>
+        <FieldError message={errors['color']} />
+      </div>
     </div>
   );
+}
+
+function HslColorSliders({ color, onChange }: { color: string; onChange: (color: string) => void }) {
+  const [hue, saturation, lightness] = hexToHsl(color) ?? [0, 0, 50];
+  const update = (next: [number, number, number]) => onChange(hslToHex(...next));
+  const controls: Array<{ label: string; value: number; max: number; update: (value: number) => void }> = [
+    { label: 'Hue', value: hue, max: 360, update: (value) => update([value, saturation, lightness]) },
+    { label: 'Saturation', value: saturation, max: 100, update: (value) => update([hue, value, lightness]) },
+    { label: 'Lightness', value: lightness, max: 100, update: (value) => update([hue, saturation, value]) },
+  ];
+  return (
+    <div className="grid max-w-md flex-1 basis-64 gap-1.5" aria-label="Fine-tune colour (HSL)">
+      {controls.map((control) => (
+        <label key={control.label} className="flex items-center gap-2 text-small text-muted">
+          <span className="w-16">{control.label}</span>
+          <input
+            aria-label={`${control.label} (${control.value})`}
+            className="h-1.5 flex-1 accent-accent"
+            type="range"
+            min={0}
+            max={control.max}
+            value={control.value}
+            onChange={(event) => control.update(Number(event.target.value))}
+          />
+          <output className="w-8 text-right font-data tabular-nums text-faint">{control.value}</output>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function hexToHsl(hex: string): [number, number, number] | null {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return null;
+  const [red, green, blue] = [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
+  const maximum = Math.max(red!, green!, blue!);
+  const minimum = Math.min(red!, green!, blue!);
+  const delta = maximum - minimum;
+  const lightness = (maximum + minimum) / 2;
+  if (delta === 0) return [0, 0, Math.round(lightness * 100)];
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  const hue = maximum === red
+    ? 60 * (((green! - blue!) / delta) % 6)
+    : maximum === green
+      ? 60 * ((blue! - red!) / delta + 2)
+      : 60 * ((red! - green!) / delta + 4);
+  return [Math.round((hue + 360) % 360), Math.round(saturation * 100), Math.round(lightness * 100)];
+}
+
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const saturationFraction = saturation / 100;
+  const lightnessFraction = lightness / 100;
+  const chroma = (1 - Math.abs(2 * lightnessFraction - 1)) * saturationFraction;
+  const secondary = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+  const match = lightnessFraction - chroma / 2;
+  const [red, green, blue] = hue < 60 ? [chroma, secondary, 0] : hue < 120 ? [secondary, chroma, 0] : hue < 180 ? [0, chroma, secondary] : hue < 240 ? [0, secondary, chroma] : hue < 300 ? [secondary, 0, chroma] : [chroma, 0, secondary];
+  const channel = (value: number) => Math.round((value + match) * 255).toString(16).padStart(2, '0');
+  return `#${channel(red)}${channel(green)}${channel(blue)}`.toUpperCase();
 }
 
 function WorkspaceTracker({ ctx }: { ctx: WorkspaceRenderCtx }) {
@@ -901,6 +982,40 @@ function WorkspaceTracker({ ctx }: { ctx: WorkspaceRenderCtx }) {
         <span className={fieldLabel}>Resolved tracker</span>
         <ResolvedTrackerValue workspace={pristineWorkspace} />
       </div>
+    </div>
+  );
+}
+
+function WorkspaceExcludedFolders({ ctx }: { ctx: WorkspaceRenderCtx }) {
+  const { workspace } = ctx;
+  const [value, setValue] = useState('');
+  const list = workspace.excludedDirectories;
+  const setList = (next: string[]) => ctx.setWorkspace({ ...workspace, excludedDirectories: next });
+  const add = () => {
+    const path = value.trim().replace(/^\/+|\/+$/g, '');
+    setValue('');
+    if (path && !list.includes(path)) setList([...list, path]);
+  };
+  return (
+    <div>
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); add(); }}>
+        <input className={`${field} flex-1`} value={value} onChange={(e) => setValue(e.target.value)} placeholder="Relative folder (e.g. dist)" aria-label="Folder to exclude" />
+        <button type="submit" className={`${btnGhost} shrink-0`}>Add</button>
+      </form>
+      {list.length > 0 ? (
+        <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Excluded folders">
+          {list.map((path) => (
+            <li key={path}>
+              <button type="button" aria-label={`Remove ${path}`} className="inline-flex items-center gap-1 rounded bg-raised px-2 py-1 font-data text-small text-muted hover:text-ink" onClick={() => setList(list.filter((entry) => entry !== path))}>
+                {path}
+                <Icon name="close" className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-small text-muted">No folders excluded.</p>
+      )}
     </div>
   );
 }
@@ -960,6 +1075,14 @@ export const SETTINGS_SCHEMA: SectionNode[] = [
     description:
       'Poll this Workspace’s issue tracker and mirror its issues onto the board as Tasks. Needs docs/agents/issue-tracker.md in the repo and gh (GitHub) auth.',
     body: (ctx) => (ctx.surface === 'workspace' ? <WorkspaceTracker ctx={ctx} /> : null),
+  },
+  {
+    tab: 'general',
+    surfaces: ['workspace'],
+    title: 'Excluded folders',
+    description:
+      "Folders shown greyed in the Files view and skipped by the live watcher — seeded with the usual build and dependency directories. Right-click a folder in the Files tree to toggle it, or manage the list here.",
+    body: (ctx) => (ctx.surface === 'workspace' ? <WorkspaceExcludedFolders ctx={ctx} /> : null),
   },
   {
     tab: 'general',
@@ -1049,11 +1172,12 @@ export const SETTINGS_SCHEMA: SectionNode[] = [
     tab: 'verification',
     surfaces: BOTH,
     title: 'Verification',
+    wide: true,
     description: {
       global:
         'Task and Epic verification is configured as independent command and critic lists for each stage.',
       workspace:
-        'Each Task and Epic verification stage can inherit the global list, replace it, or turn it off independently.',
+        'Global verifiers apply to every Workspace. Here you can reorder or disable them for this Workspace and add its own — the global ones stay locked.',
     },
     body: (ctx) =>
       ctx.surface === 'global' ? (
@@ -1101,7 +1225,7 @@ export const SETTINGS_SCHEMA: SectionNode[] = [
     wide: true,
     body: (ctx) =>
       ctx.surface === 'global' ? (
-        <HarnessesSection config={ctx.config} baseline={ctx.baseline} fieldErrors={ctx.errors} onChange={(harnesses) => ctx.setConfig({ ...ctx.config, harnesses })} />
+        <HarnessesSection config={ctx.config} baseline={ctx.baseline} fieldErrors={ctx.errors} permissionModes={ctx.harnessPermissionModes} onChange={(harnesses) => ctx.setConfig({ ...ctx.config, harnesses })} />
       ) : null,
   },
   {

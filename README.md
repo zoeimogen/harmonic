@@ -4,8 +4,9 @@ Point Harmonic at your issue tracker and it works through your backlog on
 its own. Write a spec, break it into tickets, and Harmonic runs the ready
 ones out to merged code: for each ticket it starts a coding agent,
 implements the change, has the work reviewed, and merges the branch,
-handing a ticket back only when it needs a human. You watch a board and
-step in only when a ticket needs you.
+handing a ticket back only when it needs a human. You watch a board and a
+timeline of everything the fleet has run, and step in only when a ticket
+needs you.
 
 It's built to run alongside **Matt Pocock's Skills**, which turn a spec
 into labelled tickets in your tracker; Harmonic is the layer that runs
@@ -33,6 +34,10 @@ harmonic status         # is it running, and where?
 harmonic stop           # shut it down
 ```
 
+A global install keeps itself up to date. Harmonic checks npm hourly and,
+when a newer release is out, shows a banner in the app, then upgrades in
+place the next time your fleet is idle and relaunches on the new version.
+
 Rather not install? Every command also works through `npx`:
 
 ```sh
@@ -52,6 +57,8 @@ harmonic serve
 | --- | --- |
 | `serve` | Run the server in the foreground (Ctrl-C to stop). |
 | `start` | Run the server in the background; logs to `<data-dir>/harmonic.log`. |
+| `install` | Install Harmonic as an OS service (systemd or SysV init.d) so it starts on boot. `harmonic install --help` for platform options. |
+| `uninstall` | Remove the OS service and stop it. Leaves the data dir untouched. |
 | `status` | Report whether a background server is running (exits non-zero if not). |
 | `stop` | Stop the background server. |
 | `help` | Show usage. Also `--help`, or running with no command. |

@@ -27,6 +27,17 @@ describe('api request()', () => {
     expect(fetch).toHaveBeenCalledWith('/api/tasks?workspaceId=7&state=open', { method: 'GET' });
   });
 
+  it('omits workspaceId for the Global timeline and sends it for a Workspace timeline', async () => {
+    const fetch = vi.fn().mockImplementation(() => new Response(JSON.stringify({ attempts: [], from: 1, to: 2 }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+
+    await api.timeline(undefined, 1, 2);
+    expect(fetch).toHaveBeenLastCalledWith('/api/timeline?from=1&to=2', { method: 'GET' });
+
+    await api.timeline(7, 1, 2);
+    expect(fetch).toHaveBeenLastCalledWith('/api/timeline?from=1&to=2&workspaceId=7', { method: 'GET' });
+  });
+
   it('surfaces the server error message on a non-2xx response', async () => {
     vi.stubGlobal(
       'fetch',
@@ -38,6 +49,18 @@ describe('api request()', () => {
   it('allows a genuine 204 No Content to resolve (empty body is legitimate there)', async () => {
     vi.stubGlobal('fetch', fakeFetch(null, { status: 204 }));
     await expect(api.deletePermissionRule(1)).resolves.toBeNull();
+  });
+
+  it('sends an explicit workspace file save', async () => {
+    const fetch = fakeFetch(JSON.stringify({ text: 'saved', mime: 'text/plain', size: 5, isBinary: false }), { status: 200 });
+    vi.stubGlobal('fetch', fetch);
+
+    await api.saveWorkspaceFile(7, 'src/file name.ts', 'saved');
+    expect(fetch).toHaveBeenCalledWith('/api/fs/file?workspaceId=7&path=src%2Ffile%20name.ts', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'saved' }),
+    });
   });
 });
 

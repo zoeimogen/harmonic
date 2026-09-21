@@ -17,9 +17,19 @@ describe('baseline model catalog', () => {
     });
     expect(config.harnesses.opencode.models).toEqual([
       {
+        id: 'meta/muse-spark-1.3',
+        price: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },
+        contextWindow: 1_048_576,
+      },
+      {
         id: 'meta/muse-spark-1.3-contributor',
         price: { input: 0.1, output: 0.2, cacheRead: 0.002, cacheWrite: 0 },
         contextWindow: 1_048_576,
+      },
+      {
+        id: 'deepseek/deepseek-v4.1-flash',
+        price: { input: 0.15, output: 0.6, cacheRead: 0.003, cacheWrite: 0 },
+        contextWindow: 1_000_000,
       },
       {
         id: 'openrouter/anthropic/claude-sonnet-5',
@@ -69,7 +79,7 @@ describe('PATCH /api/config verification', () => {
 
   it('accepts an agent critic', async () => {
     const patched = await server.api('PATCH', '/api/config', {
-      verify: { task: { preMerge: { commands: [], critics: [{ issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5' }] } } },
+      verify: { task: { preMerge: { commands: [], critics: [{ name: 'Test critic', issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5' }] } } },
     });
     expect(patched.status).toBe(200);
     expect(patched.body.verify.task.preMerge.critics[0].model).toBe('claude-opus-5');
@@ -77,7 +87,7 @@ describe('PATCH /api/config verification', () => {
 
   it('accepts a critic harness (issue #174) and round-trips it', async () => {
     const withHarness = await server.api('PATCH', '/api/config', {
-      verify: { task: { preMerge: { commands: [], critics: [{ issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5', harness: 'codex' }] } } },
+      verify: { task: { preMerge: { commands: [], critics: [{ name: 'Test critic', issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5', harness: 'codex' }] } } },
     });
     expect(withHarness.status).toBe(200);
     expect(withHarness.body.verify.task.preMerge.critics[0].harness).toBe('codex');
@@ -88,7 +98,7 @@ describe('PATCH /api/config verification', () => {
 
   it('accepts a critic with no harness (issue #174) — the field is optional, "Same as task"', async () => {
     const patched = await server.api('PATCH', '/api/config', {
-      verify: { task: { preMerge: { commands: [], critics: [{ issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5' }] } } },
+      verify: { task: { preMerge: { commands: [], critics: [{ name: 'Test critic', issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5' }] } } },
     });
     expect(patched.status).toBe(200);
     expect(patched.body.verify.task.preMerge.critics[0].harness).toBeUndefined();
@@ -96,7 +106,7 @@ describe('PATCH /api/config verification', () => {
 
   it('rejects an invalid critic harness (issue #174) — not one of the known harness ids', async () => {
     const invalid = await server.api('PATCH', '/api/config', {
-      verify: { task: { preMerge: { commands: [], critics: [{ issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5', harness: 'nonexistent' }] } } },
+      verify: { task: { preMerge: { commands: [], critics: [{ name: 'Test critic', issuePrompt: 'Review the diff.', noIssuePrompt: 'Review the diff.',model: 'claude-opus-5', harness: 'nonexistent' }] } } },
     });
     expect(invalid.status).toBe(400);
   });
@@ -145,6 +155,16 @@ describe('PATCH /api/config verification', () => {
       { id: 'custom-model', price: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1.25 }, contextWindow: 128_000 },
     ]);
     expect(patched.body.harnesses.claude.cacheWarmSeconds).toBe(600);
+  });
+
+  it('round-trips an optional per-harness unattended permission mode', async () => {
+    const patched = await server.api('PATCH', '/api/config', {
+      harnesses: { claude: { permissionMode: 'bypassPermissions' } },
+    });
+
+    expect(patched.status).toBe(200);
+    expect(patched.body.harnesses.claude.permissionMode).toBe('bypassPermissions');
+    expect((await server.api('GET', '/api/config')).body.harnesses.claude.permissionMode).toBe('bypassPermissions');
   });
 
   it('accepts an id-keyed model catalog patch without replacing untouched models', async () => {

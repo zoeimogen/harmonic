@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { WORKSPACE_BADGE_INK, WORKSPACE_COLORS } from '../src/domain/workspaces.js';
 
 const CSS = readFileSync(fileURLToPath(new URL('../web/src/index.css', import.meta.url)), 'utf8');
 
@@ -75,6 +76,7 @@ const UI_FLOOR = 3;
 const PAPER_TOKENS = ['await', 'await-dot', 'await-tint', 'on-await', 'on-done', 'sunken', 'edge-strong'] as const;
 
 const TOKEN_CLASS_TOKENS = ['token-input', 'token-output', 'token-cache-read', 'token-cache-write'] as const;
+const SYNTAX_TOKENS = ['syntax-comment', 'syntax-keyword', 'syntax-title', 'syntax-string'] as const;
 
 describe('Paper palette meets WCAG AA in both themes (issue #260)', () => {
   it('defines the same dark tokens via data-theme and prefers-color-scheme', () => {
@@ -153,6 +155,12 @@ describe('Paper palette meets WCAG AA in both themes (issue #260)', () => {
         });
       }
 
+      for (const token of SYNTAX_TOKENS) {
+        it(`syntax token ${token} on code background ≥ ${TEXT_FLOOR}:1`, () => {
+          expect(contrast(hex(t, token), hex(t, 'raised'))).toBeGreaterThanOrEqual(TEXT_FLOOR);
+        });
+      }
+
       it(`Switch off-track: knob vs track ≥ ${UI_FLOOR}:1`, () => {
         expect(contrast(WHITE, hex(t, 'switch-off'))).toBeGreaterThanOrEqual(UI_FLOOR);
       });
@@ -170,6 +178,16 @@ describe('Paper palette meets WCAG AA in both themes (issue #260)', () => {
           expect(r).toBeGreaterThan(1);
           expect(r).toBeLessThan(UI_FLOOR);
         });
+      }
+    });
+  }
+});
+
+describe('Workspace colours keep their badge initials at WCAG AA (issue #596)', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    it(`${theme} theme: every workspace colour has an AA badge initial`, () => {
+      for (const color of WORKSPACE_COLORS) {
+        expect(contrast(WORKSPACE_BADGE_INK, color), color).toBeGreaterThanOrEqual(TEXT_FLOOR);
       }
     });
   }

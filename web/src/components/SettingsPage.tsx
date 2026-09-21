@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { AppConfig, Channel } from '../types';
+import type { AppConfig, Channel, ConfigLayers } from '../types';
 import { btnGhost } from '../ui';
 import { changedChannelEvents, channelsDirty, toggleChannelEvent } from '../channels-save-model';
-import { parseFieldErrors } from './SettingsSection';
+import { humanizeSaveError, parseFieldErrors } from './SettingsSection';
 import { SettingsForm } from './SettingsForm';
 import type { GlobalRenderCtx } from './settings-schema';
 import { SETTING_TABS, type SettingTab } from '../../../src/domain/settings-registry.js';
@@ -17,6 +17,7 @@ import { SETTING_TABS, type SettingTab } from '../../../src/domain/settings-regi
 export function SettingsPage({ onSaved }: { onSaved: (config: AppConfig) => void }) {
   const [pristine, setPristine] = useState<AppConfig | null>(null);
   const [baseline, setBaseline] = useState<AppConfig | null>(null);
+  const [harnessPermissionModes, setHarnessPermissionModes] = useState<ConfigLayers['harnessPermissionModes']>({});
   const [local, setLocal] = useState<AppConfig | null>(null);
   const [pristineChannels, setPristineChannels] = useState<Channel[]>([]);
   const [localChannels, setLocalChannels] = useState<Channel[]>([]);
@@ -26,10 +27,11 @@ export function SettingsPage({ onSaved }: { onSaved: (config: AppConfig) => void
   const [tab, setTab] = useState<SettingTab>('general');
 
   useEffect(() => {
-    api.configLayers().then(({ baseline, global }) => {
+    api.configLayers().then(({ baseline, global, harnessPermissionModes }) => {
       setBaseline(baseline);
       setPristine(global);
       setLocal(global);
+      setHarnessPermissionModes(harnessPermissionModes);
     });
     api
       .channels()
@@ -37,7 +39,7 @@ export function SettingsPage({ onSaved }: { onSaved: (config: AppConfig) => void
         setPristineChannels(channels);
         setLocalChannels(channels);
       })
-      .catch(() => {});
+      .catch((e) => console.warn('failed to load channels', e));
   }, []);
 
   if (!local || !pristine || !baseline) return null;
@@ -69,7 +71,7 @@ export function SettingsPage({ onSaved }: { onSaved: (config: AppConfig) => void
       onSaved(updated);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      setError(message);
+      setError(humanizeSaveError(message));
       setFieldErrors(parseFieldErrors(message));
     } finally {
       setSaving(false);
@@ -85,7 +87,7 @@ export function SettingsPage({ onSaved }: { onSaved: (config: AppConfig) => void
       setLocal(updated);
       onSaved(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(humanizeSaveError(e instanceof Error ? e.message : String(e)));
     } finally {
       setSaving(false);
     }
@@ -97,6 +99,7 @@ export function SettingsPage({ onSaved }: { onSaved: (config: AppConfig) => void
     baseline,
     setConfig: setLocal,
     errors: fieldErrors,
+    harnessPermissionModes,
     channels: {
       list: localChannels,
       onToggleEvent: (id, event) => setLocalChannels((cs) => toggleChannelEvent(cs, id, event)),
@@ -114,7 +117,7 @@ export function SettingsPage({ onSaved }: { onSaved: (config: AppConfig) => void
   return (
     <SettingsForm
       title="Settings"
-      intro="Defaults, harnesses, and how the runner behaves. Changes stage until you save; only side-effect actions — password changes, adding or removing a channel — apply immediately."
+      intro="Global defaults for harnesses, verification, and the runner"
       tabs={SETTING_TABS}
       tab={tab}
       onTab={setTab}

@@ -5,59 +5,64 @@
 :root {
   color-scheme: light;
 
-  --hm-canvas: #f1f2ef;
+  --hm-canvas: #edeeeb;
   --hm-shell: #ffffff;
   --hm-surface: #ffffff;
-  --hm-sunken: #fafaf8;
+  --hm-sunken: #f5f5f3;
   --hm-field: #ffffff;
-  --hm-raised: #eeefeb;
-  --hm-hairline: #e6e7e2;
-  --hm-edge: #d5d8d1;
-  --hm-edge-strong: #d5d8d1;
+  --hm-raised: #ededea;
+  --hm-hairline: #e0e0db;
+  --hm-edge: #d0d0ca;
+  --hm-edge-strong: #c3c3bc;
   --hm-switch-off: #858983;
   --hm-ink: #1b1e24;
   --hm-muted: #656b73;
   --hm-faint: #61676f;
-  --hm-accent: #0d7271;
-  --hm-accent-hot: #0b6360;
-  --hm-accent-tint: #e0f0ef;
+  --hm-accent: #077067;
+  --hm-accent-hot: #0a6f66;
+  --hm-accent-tint: #b6ece4;
   --hm-on-accent: #ffffff;
 
   --hm-heat-0: #e7ebe7;
-  --hm-heat-1: #bfe4e0;
-  --hm-heat-2: #7fcbc4;
-  --hm-heat-3: #2f9d97;
-  --hm-heat-4: #0d7271;
+  --hm-heat-1: #a3ddd4;
+  --hm-heat-2: #4ec6bc;
+  --hm-heat-3: #14a89e;
+  --hm-heat-4: #077269;
 
-  --hm-running: #985417;
-  --hm-running-dot: #985417;
-  --hm-running-tint: #f6ebdc;
-  --hm-ready: #0d7271;
-  --hm-ready-dot: #0d7271;
-  --hm-ready-tint: #ddefee;
-  --hm-await: #4b4fa6;
-  --hm-await-dot: #4b4fa6;
-  --hm-await-tint: #ecedf7;
+  --hm-running: #a74d08;
+  --hm-running-dot: #cf6a12;
+  --hm-running-tint: #fdeacc;
+  --hm-ready: #1160ae;
+  --hm-ready-dot: #1160ae;
+  --hm-ready-tint: #cee3fa;
+  --hm-await: #4740c6;
+  --hm-await-dot: #4740c6;
+  --hm-await-tint: #d6d2fc;
   --hm-on-await: #ffffff;
-  --hm-merged: #127a39;
-  --hm-merged-dot: #127a39;
-  --hm-merged-tint: #e2f2e6;
-  --hm-done: #127a39;
-  --hm-done-dot: #127a39;
-  --hm-done-tint: #e2f2e6;
+  --hm-merged: #0d7734;
+  --hm-merged-dot: #14a049;
+  --hm-merged-tint: #c2f2cd;
+  --hm-done: #0d7734;
+  --hm-done-dot: #14a049;
+  --hm-done-tint: #d2f4db;
   --hm-on-done: #ffffff;
-  --hm-fail: #af3c52;
-  --hm-fail-dot: #af3c52;
-  --hm-fail-tint: #f9e4e8;
+  --hm-fail: #b3253f;
+  --hm-fail-dot: #ca2947;
+  --hm-fail-tint: #ffccd6;
   --hm-on-fail: #ffffff;
   --hm-blocked: #5b616a;
   --hm-blocked-tint: #ecedea;
-  --hm-paused: #3f6b8f;
-  --hm-paused-dot: #3f6b8f;
-  --hm-paused-tint: #e6edf3;
-  --hm-tool: #0d7271;
-  --hm-tool-dot: #0d7271;
-  --hm-tool-tint: #ddefee;
+  --hm-paused: #2f7fc9;
+  --hm-paused-dot: #2f7fc9;
+  --hm-paused-tint: #cde4fb;
+  --hm-tool: #077067;
+  --hm-tool-dot: #077067;
+  --hm-tool-tint: #b6ece4;
+
+  --hm-syntax-comment: #656b73;
+  --hm-syntax-keyword: #7c3a2a;
+  --hm-syntax-title: #265f7a;
+  --hm-syntax-string: #46662c;
 
   --hm-token-input: #9e760c;
   --hm-token-output: #c86418;
@@ -73,66 +78,71 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --hm-canvas: #15161a;
-  --hm-shell: #1b1d22;
-  --hm-surface: #202227;
-  --hm-sunken: #191b1f;
-  --hm-field: #1b1d22;
-  --hm-raised: #282b31;
-  --hm-hairline: #2c2f36;
-  --hm-edge: #3b3f47;
-  --hm-edge-strong: #454b54;
+  --hm-canvas: #141416;
+  --hm-shell: #191a1c;
+  --hm-surface: #1e1f22;
+  --hm-sunken: #141416;
+  --hm-field: #191a1c;
+  --hm-raised: #292a2e;
+  --hm-hairline: #2f3035;
+  --hm-edge: #414248;
+  --hm-edge-strong: #4e4f55;
   --hm-switch-off: #696c73;
-  --hm-ink: #e8e9ec;
-  --hm-muted: #a3a8b0;
-  --hm-faint: #979ba2;
-  --hm-accent: #33bdb4;
-  --hm-accent-hot: #4cd0c7;
-  --hm-accent-tint: #123330;
-  --hm-on-accent: #0e1413;
+  --hm-ink: #e9e9ec;
+  --hm-muted: #a5a6ab;
+  --hm-faint: #949599;
+  --hm-accent: #2ed3c4;
+  --hm-accent-hot: #5fe6da;
+  --hm-accent-tint: #0f3e38;
+  --hm-on-accent: #04120f;
 
   --hm-heat-0: #2a2d33;
-  --hm-heat-1: #1e4a45;
-  --hm-heat-2: #248079;
-  --hm-heat-3: #33aaa1;
-  --hm-heat-4: #4cd0c7;
+  --hm-heat-1: #0f574f;
+  --hm-heat-2: #18ab9d;
+  --hm-heat-3: #2ec2b4;
+  --hm-heat-4: #5fe6da;
 
-  --hm-running: #de9a45;
-  --hm-running-dot: #de9a45;
-  --hm-running-tint: #3a2c16;
-  --hm-ready: #33bdb4;
-  --hm-ready-dot: #33bdb4;
-  --hm-ready-tint: #123330;
-  --hm-await: #9096e6;
-  --hm-await-dot: #9096e6;
-  --hm-await-tint: #25264c;
-  --hm-on-await: #15161a;
-  --hm-merged: #3ecf7e;
-  --hm-merged-dot: #3ecf7e;
-  --hm-merged-tint: #123420;
-  --hm-done: #3ecf7e;
-  --hm-done-dot: #3ecf7e;
-  --hm-done-tint: #123420;
-  --hm-on-done: #0e1413;
-  --hm-fail: #f0768a;
-  --hm-fail-dot: #f0768a;
-  --hm-fail-tint: #3b1d24;
-  --hm-on-fail: #0e1413;
+  --hm-running: #ffb524;
+  --hm-running-dot: #ffb524;
+  --hm-running-tint: #51360a;
+  --hm-ready: #4ca8f5;
+  --hm-ready-dot: #4ca8f5;
+  --hm-ready-tint: #0b2740;
+  --hm-await: #bd9dff;
+  --hm-await-dot: #bd9dff;
+  --hm-await-tint: #372f97;
+  --hm-on-await: #0b0b18;
+  --hm-merged: #2bf58e;
+  --hm-merged-dot: #2bf58e;
+  --hm-merged-tint: #0d5531;
+  --hm-done: #2bf58e;
+  --hm-done-dot: #2bf58e;
+  --hm-done-tint: #0d5531;
+  --hm-on-done: #04120c;
+  --hm-fail: #ff5570;
+  --hm-fail-dot: #ff5570;
+  --hm-fail-tint: #4d121f;
+  --hm-on-fail: #1a0308;
   --hm-blocked: #9aa0a9;
-  --hm-blocked-tint: #282b31;
-  --hm-paused: #84add6;
-  --hm-paused-dot: #84add6;
-  --hm-paused-tint: #1d2733;
-  --hm-tool: #33bdb4;
-  --hm-tool-dot: #33bdb4;
-  --hm-tool-tint: #123330;
+  --hm-blocked-tint: #292a2e;
+  --hm-paused: #57b0ff;
+  --hm-paused-dot: #57b0ff;
+  --hm-paused-tint: #10395c;
+  --hm-tool: #2ed3c4;
+  --hm-tool-dot: #2ed3c4;
+  --hm-tool-tint: #0f3e38;
+
+  --hm-syntax-comment: #a3a8b0;
+  --hm-syntax-keyword: #e99a89;
+  --hm-syntax-title: #82c5df;
+  --hm-syntax-string: #b4d28a;
 
   --hm-token-input: #e4c256;
   --hm-token-output: #ef9350;
   --hm-token-cache-read: #f0836e;
   --hm-token-cache-write: #e087c0;
 
-  --hm-shadow-card: 0 0 0 1px var(--hm-hairline);
+  --hm-shadow-card: 0 0 0 1px var(--hm-hairline), 0 2px 10px rgb(0 0 0 / 0.4);
   --hm-shadow-float: 0 12px 40px rgb(0 0 0 / 0.55);
   --hm-shadow-bar: 0 0 0 1px var(--hm-edge), 0 14px 40px rgb(0 0 0 / 0.5);
   --hm-shadow-btn: none;
@@ -142,66 +152,71 @@
   :root:not([data-theme='light']) {
     color-scheme: dark;
 
-    --hm-canvas: #15161a;
-    --hm-shell: #1b1d22;
-    --hm-surface: #202227;
-    --hm-sunken: #191b1f;
-    --hm-field: #1b1d22;
-    --hm-raised: #282b31;
-    --hm-hairline: #2c2f36;
-    --hm-edge: #3b3f47;
-    --hm-edge-strong: #454b54;
+    --hm-canvas: #141416;
+    --hm-shell: #191a1c;
+    --hm-surface: #1e1f22;
+    --hm-sunken: #141416;
+    --hm-field: #191a1c;
+    --hm-raised: #292a2e;
+    --hm-hairline: #2f3035;
+    --hm-edge: #414248;
+    --hm-edge-strong: #4e4f55;
     --hm-switch-off: #696c73;
-    --hm-ink: #e8e9ec;
-    --hm-muted: #a3a8b0;
-    --hm-faint: #979ba2;
-    --hm-accent: #33bdb4;
-    --hm-accent-hot: #4cd0c7;
-    --hm-accent-tint: #123330;
-    --hm-on-accent: #0e1413;
+    --hm-ink: #e9e9ec;
+    --hm-muted: #a5a6ab;
+    --hm-faint: #949599;
+    --hm-accent: #2ed3c4;
+    --hm-accent-hot: #5fe6da;
+    --hm-accent-tint: #0f3e38;
+    --hm-on-accent: #04120f;
 
     --hm-heat-0: #2a2d33;
-    --hm-heat-1: #1e4a45;
-    --hm-heat-2: #248079;
-    --hm-heat-3: #33aaa1;
-    --hm-heat-4: #4cd0c7;
+    --hm-heat-1: #0f574f;
+    --hm-heat-2: #18ab9d;
+    --hm-heat-3: #2ec2b4;
+    --hm-heat-4: #5fe6da;
 
-    --hm-running: #de9a45;
-    --hm-running-dot: #de9a45;
-    --hm-running-tint: #3a2c16;
-    --hm-ready: #33bdb4;
-    --hm-ready-dot: #33bdb4;
-    --hm-ready-tint: #123330;
-    --hm-await: #9096e6;
-    --hm-await-dot: #9096e6;
-    --hm-await-tint: #25264c;
-    --hm-on-await: #15161a;
-    --hm-merged: #3ecf7e;
-    --hm-merged-dot: #3ecf7e;
-    --hm-merged-tint: #123420;
-    --hm-done: #3ecf7e;
-    --hm-done-dot: #3ecf7e;
-    --hm-done-tint: #123420;
-    --hm-on-done: #0e1413;
-    --hm-fail: #f0768a;
-    --hm-fail-dot: #f0768a;
-    --hm-fail-tint: #3b1d24;
-    --hm-on-fail: #0e1413;
+    --hm-running: #ffb524;
+    --hm-running-dot: #ffb524;
+    --hm-running-tint: #51360a;
+    --hm-ready: #4ca8f5;
+    --hm-ready-dot: #4ca8f5;
+    --hm-ready-tint: #0b2740;
+    --hm-await: #bd9dff;
+    --hm-await-dot: #bd9dff;
+    --hm-await-tint: #372f97;
+    --hm-on-await: #0b0b18;
+    --hm-merged: #2bf58e;
+    --hm-merged-dot: #2bf58e;
+    --hm-merged-tint: #0d5531;
+    --hm-done: #2bf58e;
+    --hm-done-dot: #2bf58e;
+    --hm-done-tint: #0d5531;
+    --hm-on-done: #04120c;
+    --hm-fail: #ff5570;
+    --hm-fail-dot: #ff5570;
+    --hm-fail-tint: #4d121f;
+    --hm-on-fail: #1a0308;
     --hm-blocked: #9aa0a9;
-    --hm-blocked-tint: #282b31;
-    --hm-paused: #84add6;
-    --hm-paused-dot: #84add6;
-    --hm-paused-tint: #1d2733;
-    --hm-tool: #33bdb4;
-    --hm-tool-dot: #33bdb4;
-    --hm-tool-tint: #123330;
+    --hm-blocked-tint: #292a2e;
+    --hm-paused: #57b0ff;
+    --hm-paused-dot: #57b0ff;
+    --hm-paused-tint: #10395c;
+    --hm-tool: #2ed3c4;
+    --hm-tool-dot: #2ed3c4;
+    --hm-tool-tint: #0f3e38;
+
+    --hm-syntax-comment: #a3a8b0;
+    --hm-syntax-keyword: #e99a89;
+    --hm-syntax-title: #82c5df;
+    --hm-syntax-string: #b4d28a;
 
     --hm-token-input: #e4c256;
     --hm-token-output: #ef9350;
     --hm-token-cache-read: #f0836e;
     --hm-token-cache-write: #e087c0;
 
-    --hm-shadow-card: 0 0 0 1px var(--hm-hairline);
+    --hm-shadow-card: 0 0 0 1px var(--hm-hairline), 0 2px 10px rgb(0 0 0 / 0.4);
     --hm-shadow-float: 0 12px 40px rgb(0 0 0 / 0.55);
     --hm-shadow-bar: 0 0 0 1px var(--hm-edge), 0 14px 40px rgb(0 0 0 / 0.5);
     --hm-shadow-btn: none;
@@ -255,6 +270,10 @@
   --color-tool: var(--hm-tool);
   --color-tool-dot: var(--hm-tool-dot);
   --color-tool-tint: var(--hm-tool-tint);
+  --color-syntax-comment: var(--hm-syntax-comment);
+  --color-syntax-keyword: var(--hm-syntax-keyword);
+  --color-syntax-title: var(--hm-syntax-title);
+  --color-syntax-string: var(--hm-syntax-string);
 
   --color-token-input: var(--hm-token-input);
   --color-token-output: var(--hm-token-output);
@@ -310,6 +329,19 @@
 :is(.node.await, .node.escalated) .node-fill { fill: var(--hm-await-tint); }
 :is(.node.merged, .node.done) .node-fill { fill: var(--hm-merged-tint); }
 
+/* Depth pass: a barely-there lit-surface sheen so washes, filled buttons and
+   chart bars read tactile rather than dead-flat, while holding the Paper
+   register (low-alpha, no gloss). Layers over each element's own fill. */
+.bold-wash {
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.05) 0%, rgb(255 255 255 / 0) 46%, rgb(0 0 0 / 0.04) 100%);
+}
+.btn-3d {
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.15) 0%, rgb(255 255 255 / 0) 52%, rgb(0 0 0 / 0.09) 100%);
+}
+.bar-3d {
+  background-image: linear-gradient(180deg, rgb(255 255 255 / 0.2) 0%, rgb(255 255 255 / 0) 74%);
+}
+
 /* Kept off the `--font-weight-*` theme namespace so it doesn't collide with the
    `font-display` family utility (`--font-display`). */
 @utility font-display-weight {
@@ -358,6 +390,65 @@
     }
   }
 
+  /* The About dialog's clef writes itself in on open (pathLength=100 normalises
+     the dash metrics regardless of the glyph's real length). */
+  @keyframes clef-draw {
+    from {
+      stroke-dashoffset: 100;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .clef-draw {
+      stroke-dasharray: 100;
+      animation: clef-draw 1s var(--ease-out-quint) 0.15s both;
+    }
+  }
+
+  /* translateY() percentages resolve against the mote's own glyph box, not the
+     header, so a fixed px is used instead of a %. */
+  @keyframes note-mote-rise {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(-100px);
+    }
+  }
+
+  .note-mote {
+    animation-name: note-mote-rise;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+
+  @keyframes note-mote-sway {
+    from {
+      transform: translateX(-3px);
+    }
+    to {
+      transform: translateX(3px);
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .mote-sway {
+      animation: note-mote-sway var(--sway-dur, 5s) ease-in-out var(--sway-delay, 0s) infinite alternate;
+    }
+  }
+
+  @keyframes stave-scroll {
+    to {
+      transform: translateX(calc(-1 * var(--loop-w)));
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .stave-scroll {
+      animation: stave-scroll var(--loop-dur, 13s) linear infinite;
+      will-change: transform;
+    }
+  }
+
   @keyframes indeterminate-progress {
     from {
       transform: translateX(-100%);
@@ -398,6 +489,16 @@
 
     .animate-dot-pulse {
       animation: none;
+    }
+
+    .note-mote,
+    .mote-sway {
+      animation: none;
+    }
+
+    .stave-scroll {
+      animation: none;
+      transform: translateX(calc(-1 * var(--static-x, 308px)));
     }
   }
 }
@@ -506,6 +607,147 @@
 .markdown pre code {
   padding: 0;
   background: none;
+}
+
+/* Document-scale variant for reading a whole file (the Files preview), with a
+   real heading hierarchy the compact chat markdown deliberately flattens. */
+.markdown-doc {
+  max-width: 80ch;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  color: var(--hm-ink);
+}
+.markdown-doc h1,
+.markdown-doc h2,
+.markdown-doc h3,
+.markdown-doc h4,
+.markdown-doc h5,
+.markdown-doc h6 {
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+.markdown-doc h1 {
+  font-size: 1.7rem;
+  margin: 1.5rem 0 0.85rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--hm-hairline);
+}
+.markdown-doc h2 {
+  font-size: 1.3rem;
+  margin: 1.4rem 0 0.6rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--hm-hairline);
+}
+.markdown-doc h3 {
+  font-size: 1.1rem;
+  margin: 1.2rem 0 0.5rem;
+}
+.markdown-doc h4,
+.markdown-doc h5,
+.markdown-doc h6 {
+  font-size: 1rem;
+  margin: 1rem 0 0.4rem;
+}
+.markdown-doc > :first-child {
+  margin-top: 0;
+}
+.markdown-doc p,
+.markdown-doc ul,
+.markdown-doc ol,
+.markdown-doc pre,
+.markdown-doc blockquote,
+.markdown-doc table {
+  margin: 0.8rem 0;
+}
+.markdown-doc ul,
+.markdown-doc ol {
+  padding-left: 1.6rem;
+}
+.markdown-doc li {
+  margin: 0.28rem 0;
+}
+.markdown-doc blockquote {
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--hm-edge);
+  color: var(--hm-muted);
+}
+.markdown-doc table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.markdown-doc th,
+.markdown-doc td {
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--hm-hairline);
+  text-align: left;
+}
+.markdown-doc th {
+  background: var(--hm-raised);
+  font-weight: 600;
+}
+.markdown-doc hr {
+  margin: 1.4rem 0;
+  border: 0;
+  border-top: 1px solid var(--hm-hairline);
+}
+.markdown-doc img {
+  max-width: 100%;
+  border-radius: 0.375rem;
+}
+.markdown-doc a {
+  color: var(--hm-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+.markdown-doc a:hover {
+  color: var(--hm-accent-hot);
+}
+.markdown-doc code {
+  font-size: 0.85em;
+  padding: 0.1rem 0.35rem;
+}
+.markdown-doc pre {
+  padding: 0.85rem 1rem;
+  line-height: 1.55;
+}
+.markdown-doc li::marker {
+  color: var(--hm-faint);
+}
+.markdown-doc li > p {
+  margin: 0.2rem 0;
+}
+.markdown-doc input[type='checkbox'] {
+  margin-right: 0.45rem;
+  accent-color: var(--hm-accent);
+}
+.markdown-doc ul:has(> li > input[type='checkbox']) {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--hm-syntax-comment);
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type,
+.hljs-built_in,
+.hljs-meta {
+  color: var(--hm-syntax-keyword);
+}
+.hljs-title,
+.hljs-title.function_ {
+  color: var(--hm-syntax-title);
+}
+.hljs-string,
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-attr {
+  color: var(--hm-syntax-string);
 }
 .markdown blockquote {
   padding-left: 0.75rem;

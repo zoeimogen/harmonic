@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { ExecutionContext } from '../app.js';
+import { adapterFor } from '../../execution/harness/registry.js';
 import {
   HARNESS_IDS,
   ISOLATION_MODES,
@@ -14,6 +15,21 @@ import {
   type AppConfig,
   type DeepPartial,
 } from '../../config.js';
+
+const harnessPermissionModesSchema = z.record(
+  z.string(),
+  z.object({ modes: z.record(z.string(), z.string()), defaultMode: z.string() }),
+);
+
+function harnessPermissionModes() {
+  return Object.fromEntries(
+    HARNESS_IDS.flatMap((id) => {
+      const adapter = adapterFor(id);
+      if (!adapter.permissionModes || !adapter.defaultPermissionMode) return [];
+      return [[id, { modes: { ...adapter.permissionModes }, defaultMode: adapter.defaultPermissionMode }]];
+    }),
+  );
+}
 
 /** A deep-partial patch of `AppConfig`; `appConfigSchema` re-validates the merged result. */
 const configPatchBodySchema = z
@@ -40,6 +56,8 @@ const configPatchBodySchema = z
           /** Must be one of `models` when any are listed — enforced by the config schema on write. */
           defaultModel: z.string().meta({ example: 'sonnet-5' }),
           cacheWarmSeconds: z.number().int().positive().meta({ example: 300 }),
+          /** Unattended ACP permission mode; omit to use the adapter default. */
+          permissionMode: z.string().meta({ example: 'bypassPermissions' }),
           /** Root of the harness's native session logs; empty string disables the usage fallback. */
           sessionLogDir: z.string().meta({ example: '/home/dev/.claude/projects' }),
         }).partial(),
@@ -77,7 +95,7 @@ const configPatchBodySchema = z
     contextReuseTokenLimit: z.number().int().min(0).meta({ example: 200_000 }),
     drive: z
       .object({
-        prompt: z.string().meta({ example: '{skill}\n\nResolve #{ref} ({url}) end to end — read the issue yourself.' }),
+        prompt: z.string().meta({ example: '{skill} {ref}\n\nResolve #{ref} ({url}) end to end — read the issue yourself.' }),
         unattendedReminder: z.string().meta({ example: '## Running unattended\n\nYou are Harmonic Task {taskId}…' }),
         continuePrompt: z.string().meta({ example: "Your last turn ended but Task {taskId} isn't finished…" }),
         mergeFate: z.enum(MERGE_FATES).meta({ example: 'auto-merge' }),
@@ -123,10 +141,10 @@ export async function configRoutes(fastify: FastifyInstance, ctx: Pick<Execution
         tags: ['Config'],
         description: 'Get the distributed baseline and effective global configuration for settings inheritance controls.',
         security: [{ bearerAuth: [] }, { sessionCookie: [] }],
-        response: { 200: z.object({ baseline: appConfigSchema, global: appConfigSchema }).describe('The distributed baseline config and the effective global config the inheritance controls resolve against.') },
+        response: { 200: z.object({ baseline: appConfigSchema, global: appConfigSchema, harnessPermissionModes: harnessPermissionModesSchema }).describe('The distributed baseline, effective global config, and adapter-declared Harness permission modes for settings controls.') },
       },
     },
-    async () => ({ baseline: ctx.settingsStore.getBaseline(), global: ctx.settingsStore.getGlobal() }),
+    async () => ({ baseline: ctx.settingsStore.getBaseline(), global: ctx.settingsStore.getGlobal(), harnessPermissionModes: harnessPermissionModes() }),
   );
 
   app.patch(

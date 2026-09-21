@@ -15,7 +15,7 @@ describe('Workspace CRUD (ADR-0008, issue #41)', () => {
     await server.close();
   });
 
-  it('GET /api/workspaces returns the boot-time default Workspace (issue #39)', async () => {
+  it('GET /api/workspaces returns the seeded default Workspace (issue #39)', async () => {
     const { status, body } = await server.api('GET', '/api/workspaces');
     expect(status).toBe(200);
     expect(body.workspaces).toHaveLength(1);
@@ -30,6 +30,7 @@ describe('Workspace CRUD (ADR-0008, issue #41)', () => {
     const created = await server.api('POST', '/api/workspaces', { name: 'Side project', workingDir: dir });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ name: 'Side project', workingDir: dir });
+    expect(created.body.color).toMatch(/^#[0-9A-F]{6}$/);
 
     const missing = await server.api('POST', '/api/workspaces', {
       name: 'Nowhere',
@@ -37,6 +38,16 @@ describe('Workspace CRUD (ADR-0008, issue #41)', () => {
     });
     expect(missing.status).toBe(400);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('assigns palette colours evenly and lets an AA-safe colour be changed', async () => {
+    const dirs = Array.from({ length: 3 }, () => mkdtempSync(join(tmpdir(), 'harmonic-workspace-color-')));
+    const created = await Promise.all(dirs.map((workingDir, index) => server.api('POST', '/api/workspaces', { name: `Color ${index}`, workingDir })));
+    expect(new Set(created.map((response) => response.body.color)).size).toBe(3);
+    const updated = await server.api('PATCH', `/api/workspaces/${created[0]!.body.id}`, { color: '#FFFFFF' });
+    expect(updated.body.color).toBe('#FFFFFF');
+    expect((await server.api('PATCH', `/api/workspaces/${created[0]!.body.id}`, { color: '#111111' })).status).toBe(400);
+    dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true }));
   });
 
   it('rejects a duplicate absolute path on create and on update', async () => {
@@ -136,15 +147,15 @@ describe('Workspace CRUD (ADR-0008, issue #41)', () => {
     expect(created.body.epicPreMergeCritics).toBeNull();
 
     const set = await server.api('PATCH', `/api/workspaces/${created.body.id}`, {
-      taskPreMergeCommands: [{ command: 'npm', args: ['test'] }],
-      taskPreMergeCritics: [{ issuePrompt: 'review the issue diff', noIssuePrompt: 'review the Task diff', model: 'claude-opus-5' }],
+      taskPreMergeCommands: [{ kind: 'local', enabled: true, command: { id: 'cmd-test', command: 'npm', args: ['test'] } }],
+      taskPreMergeCritics: [{ kind: 'local', enabled: true, critic: { id: 'critic-test', name: 'Test critic', issuePrompt: 'review the issue diff', noIssuePrompt: 'review the Task diff', model: 'claude-opus-5' } }],
     });
     expect(set.status).toBe(200);
-    expect(set.body.taskPreMergeCommands).toMatchObject([{ command: 'npm', args: ['test'], env: {}, timeoutSeconds: 600 }]);
-    expect(set.body.taskPreMergeCritics).toMatchObject([{ issuePrompt: 'review the issue diff', noIssuePrompt: 'review the Task diff', model: 'claude-opus-5' }]);
+    expect(set.body.taskPreMergeCommands).toMatchObject([{ kind: 'local', command: { command: 'npm', args: ['test'], env: {}, timeoutSeconds: 600 } }]);
+    expect(set.body.taskPreMergeCritics).toMatchObject([{ kind: 'local', critic: { name: 'Test critic', issuePrompt: 'review the issue diff', noIssuePrompt: 'review the Task diff', model: 'claude-opus-5' } }]);
 
     const fetched = await server.api('GET', `/api/workspaces/${created.body.id}`);
-    expect(fetched.body.taskPreMergeCommands).toMatchObject([{ command: 'npm', args: ['test'] }]);
+    expect(fetched.body.taskPreMergeCommands).toMatchObject([{ kind: 'local', command: { command: 'npm', args: ['test'] } }]);
 
     const disabled = await server.api('PATCH', `/api/workspaces/${created.body.id}`, { taskPreMergeCritics: [] });
     expect(disabled.status).toBe(200);
@@ -164,16 +175,18 @@ describe('Workspace CRUD (ADR-0008, issue #41)', () => {
     const created = await server.api('POST', '/api/workspaces', { name: 'Invalid critic', workingDir: dir });
     expect(created.status).toBe(201);
 
-    const rejected = await server.api('PATCH', `/api/workspaces/${created.body.id}`, { taskPreMergeCritics: [{ issuePrompt: 'review it', model: 'claude-opus-5' }] });
+    const rejected = await server.api('PATCH', `/api/workspaces/${created.body.id}`, {
+      taskPreMergeCritics: [{ kind: 'local', enabled: true, critic: { id: 'critic-test', name: 'Test critic', issuePrompt: 'review it', model: 'claude-opus-5' } }],
+    });
     expect(rejected.status).toBe(400);
     expect(rejected.body.error.message).toContain('noIssuePrompt');
     expect((await server.api('GET', `/api/workspaces/${created.body.id}`)).body.taskPreMergeCritics).toBeNull();
 
     const accepted = await server.api('PATCH', `/api/workspaces/${created.body.id}`, {
-      taskPreMergeCritics: [{ issuePrompt: 'review the issue', noIssuePrompt: 'review the Task', model: 'claude-opus-5' }],
+      taskPreMergeCritics: [{ kind: 'local', enabled: true, critic: { id: 'critic-test', name: 'Test critic', issuePrompt: 'review the issue', noIssuePrompt: 'review the Task', model: 'claude-opus-5' } }],
     });
     expect(accepted.status).toBe(200);
-    expect(accepted.body.taskPreMergeCritics).toMatchObject([{ issuePrompt: 'review the issue', noIssuePrompt: 'review the Task', model: 'claude-opus-5' }]);
+    expect(accepted.body.taskPreMergeCritics).toMatchObject([{ kind: 'local', critic: { name: 'Test critic', issuePrompt: 'review the issue', noIssuePrompt: 'review the Task', model: 'claude-opus-5' } }]);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -285,6 +298,28 @@ describe('Task/Conversation binding + scoping (issue #41)', () => {
     expect(scoped.status).toBe(200);
     expect(scoped.body.tasks.length).toBeGreaterThan(0);
     expect(scoped.body.tasks.every((t: any) => t.workspaceId === workspaceB)).toBe(true);
+  });
+
+  it('lists a paginated, filtered task page across Workspaces when workspaceId is absent', async () => {
+    const alpha = await server.api('POST', '/api/tasks', {
+      prompt: 'global table alpha',
+      workspaceId: workspaceA,
+    });
+    const beta = await server.api('POST', '/api/tasks', {
+      prompt: 'global table beta',
+      workspaceId: workspaceB,
+    });
+
+    const global = await server.api('GET', '/api/tasks?q=global%20table&state=open&sortBy=createdAt&order=asc&limit=1&offset=1');
+    expect(global.status).toBe(200);
+    expect(global.body.total).toBe(2);
+    expect(global.body.tasks).toHaveLength(1);
+    expect(global.body.tasks[0]).toMatchObject({ id: beta.body.id, workspaceId: workspaceB });
+
+    const scoped = await server.api('GET', `/api/tasks?workspaceId=${workspaceB}&q=global%20table`);
+    expect(scoped.body.tasks).toHaveLength(1);
+    expect(scoped.body.tasks[0]).toMatchObject({ id: beta.body.id, workspaceId: workspaceB });
+    expect(alpha.body.workspaceId).toBe(workspaceA);
   });
 
   it('a Conversation created with an explicit workspaceId binds to it and defaults workingDir from it', async () => {

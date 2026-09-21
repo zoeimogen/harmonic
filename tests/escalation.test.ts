@@ -10,17 +10,16 @@ import { type MergeEffectExec } from '../src/domain/merge.js';
 import { TaskService } from '../src/domain/tasks.js';
 import { VerificationAttemptStore } from '../src/domain/verification-attempts.js';
 import { type SettingsStore } from '../src/server/settings-store.js';
-import { type VerificationDecision } from '../src/verification/combine.js';
 import { type Verdict } from '../src/verification/critic-schema.js';
 import { type CriticDriveRequest, type CriticHarnessDrive } from '../src/verification/critic.js';
-import { allWorkspaces, makeSettingsStore, startServer, stubHarness, type TestServer, waitFor } from './helpers.js';
+import { allWorkspaces, makeSettingsStore, startServer, stubHarness, type TestServer, waitFor, seedWorkspace } from './helpers.js';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 describe('escalation', () => {
-  describe('escalation: the three actions (direct mode)', () => {
+  describe('escalation: the disposition actions (direct mode)', () => {
     let server: TestServer;
 
     beforeAll(async () => {
@@ -140,11 +139,24 @@ describe('escalation', () => {
       );
     });
 
-    it('Reject without guidance is a validation error and changes nothing', async () => {
+    it('Reject without guidance returns the ticket to ready with no feedback', async () => {
       const taskId = await runToEscalated();
+      const branch = (await server.api('GET', `/api/tasks/${taskId}/attempts/current`)).body.branch;
+      const feedbackBefore = (await timeline(taskId)).find((attempt) => attempt.number === 1)!.feedback;
       const rejected = await server.api('POST', `/api/tasks/${taskId}/reject`, { guidance: '   ' });
-      expect(rejected.status).toBe(400);
-      expect((await server.api('GET', `/api/tasks/${taskId}`)).body.state).toBe('escalated');
+      expect(rejected.status).toBe(200);
+      expect(rejected.body).toMatchObject({ state: 'ready', escalationReason: null, feedback: null });
+      await new Promise((r) => setTimeout(r, 50));
+      expect((await server.api('GET', `/api/tasks/${taskId}`)).body.state).toBe('ready');
+      const runs = (await server.api('GET', `/api/tasks/${taskId}/attempts`)).body.attempts;
+      expect(runs).toHaveLength(1);
+      expect(runs[0]!.branch).toBe(branch);
+      expect(runs[0].prompt).not.toContain('Feedback from the previous attempt');
+      expect((await timeline(taskId)).find((attempt) => attempt.number === 1)!.feedback).toBe(feedbackBefore);
+
+      expect((await server.api('POST', `/api/tasks/${taskId}/run`)).status).toBe(201);
+      await waitFor(async () => (await server.api('GET', `/api/tasks/${taskId}`)).body.state === 'escalated');
+      expect(await timeline(taskId)).toHaveLength(2);
     });
 
     it('Close cancels the ticket and clears the escalation reason', async () => {
@@ -156,12 +168,12 @@ describe('escalation', () => {
       expect((await server.api('POST', `/api/tasks/${taskId}/uncancel`)).body.state).toBe('ready');
     });
 
-    it('the three actions apply to escalated tickets only', async () => {
+    it('the disposition actions apply to escalated tickets only', async () => {
       const created = await server.api('POST', '/api/tasks', { prompt: 'p' });
       expect((await server.api('POST', `/api/tasks/${created.body.id}/accept`)).status).toBe(409);
       expect((await server.api('POST', `/api/tasks/${created.body.id}/reject`, { guidance: 'x' })).status).toBe(409);
-      expect((await server.api('POST', `/api/tasks/${created.body.id}/close`)).status).toBe(409);
       expect((await server.api('POST', `/api/tasks/${created.body.id}/requeue`, {})).status).toBe(404);
+      expect((await server.api('POST', `/api/tasks/${created.body.id}/close`)).status).toBe(409);
       expect((await server.api('POST', `/api/tasks/${created.body.id}/unescalate`)).status).toBe(404);
       expect((await server.api('POST', `/api/tasks/${created.body.id}/adopt-review`)).status).toBe(404);
       expect((await server.api('POST', `/api/tasks/${created.body.id}/note-to-critic`, { note: 'x' })).status).toBe(404);
@@ -203,14 +215,13 @@ describe('escalation-service', () => {
     let cleaned: Array<{ taskId: number; attemptId: number | undefined }>;
     let effects: MergeEffectExec[];
     let candidateHeadValue: string | null;
-    let verifyDecision: VerificationDecision;
     let candidateHeadCalls: Array<{ taskId: number; runId: number }>;
-    let verifyCandidateCalls: Array<{ taskId: number; runId: number; head: string }>;
     let service: EscalationService;
 
     beforeEach(async () => {
       dir = mkdtempSync(join(tmpdir(), 'harmonic-escalation-service-'));
       asyncDb = await openAsyncDb(dir);
+      await seedWorkspace(asyncDb);
       settingsStore = await makeSettingsStore(dir);
       tasks = new TaskService(asyncDb, () => baselineConfig(), allWorkspaces(asyncDb, settingsStore));
       attempts = new AttemptStore(asyncDb);
@@ -219,9 +230,7 @@ describe('escalation-service', () => {
       cleaned = [];
       effects = [];
       candidateHeadValue = 'cand-oid';
-      verifyDecision = { outcome: 'proceed', reason: '' };
       candidateHeadCalls = [];
-      verifyCandidateCalls = [];
       service = new EscalationService(attempts, tasks, settle, () => effects, {
         resume: async (task, guidance, startNow) => {
           resumed.push({ taskId: task.id, guidance, startNow });
@@ -232,10 +241,6 @@ describe('escalation-service', () => {
         candidateHead: async (task, run) => {
           candidateHeadCalls.push({ taskId: task.id, runId: run.id });
           return candidateHeadValue;
-        },
-        verifyCandidate: async (task, run, head) => {
-          verifyCandidateCalls.push({ taskId: task.id, runId: run.id, head });
-          return verifyDecision;
         },
       });
     });
@@ -275,7 +280,7 @@ describe('escalation-service', () => {
     });
 
     describe('accept', () => {
-      it('unverified candidate: verify passes, merges the candidate under the operator-accept disposition and moves the ticket to done', async () => {
+      it('merges the candidate as-is under the operator-accept disposition and moves the ticket to done — no verification', async () => {
         const { task, run } = await escalated();
         expect(task.state).toBe('escalated');
         expect(run).toMatchObject({ state: 'escalated' });
@@ -285,54 +290,25 @@ describe('escalation-service', () => {
         const accepted = await service.accept(task.id);
 
         expect(candidateHeadCalls).toEqual([{ taskId: task.id, runId: run.id }]);
-        expect(verifyCandidateCalls).toEqual([{ taskId: task.id, runId: run.id, head: 'cand-oid' }]);
         expect(applied).toBe(1);
         expect(accepted).toMatchObject({ state: 'done', escalationReason: null });
         expect(await attempts.get(run.id)).toMatchObject({ state: 'passed', reason: 'operator-accept', verifiedHeadOid: 'cand-oid' });
         expect(resumed).toEqual([]);
       });
 
-      it('unverified candidate: verify fails (block), hands the reason to the loop as feedback without merging', async () => {
-        const { task, run } = await escalated();
-        verifyDecision = { outcome: 'block', reason: 'boom' };
-        let applied = 0;
-        effects = [{ effect: 'target-ref', idempotencyKey: 'main<-branch', expected: {}, apply: async () => { applied++; return { ok: true, observed: {} }; } }];
-
-        const accepted = await service.accept(task.id);
-
-        expect(applied).toBe(0);
-        expect(resumed).toHaveLength(1);
-        expect(resumed[0]).toMatchObject({ taskId: task.id, startNow: false });
-        expect(resumed[0]!.guidance).toContain('boom');
-        expect(resumed[0]!.guidance).toContain('Operator Accept ran verification');
-        expect(accepted.state).toBe('escalated');
-        expect(await attempts.get(run.id)).toMatchObject({ state: 'escalated' });
-      });
-
-      it('unverified candidate: verify fails (escalate outcome), also hands the reason to the loop without merging', async () => {
+      it('marks the ticket merging, then applies the merge — never resumes the loop', async () => {
         const { task } = await escalated();
-        verifyDecision = { outcome: 'escalate', reason: 'flaky verifier' };
+        const statuses: (string | null)[] = [];
+        const original = tasks.setMergeStatus.bind(tasks);
+        tasks.setMergeStatus = async (id: number, status) => {
+          statuses.push(status);
+          return original(id, status);
+        };
+        effects = [{ effect: 'target-ref', idempotencyKey: 'main<-branch', expected: {}, apply: async () => ({ ok: true, observed: {} }) }];
 
-        const accepted = await service.accept(task.id);
+        await service.accept(task.id);
 
-        expect(resumed).toHaveLength(1);
-        expect(resumed[0]).toMatchObject({ taskId: task.id, startNow: false });
-        expect(resumed[0]!.guidance).toContain('flaky verifier');
-        expect(accepted.state).toBe('escalated');
-      });
-
-      it('force skips verification and merges the candidate as-is', async () => {
-        const { task, run } = await escalated();
-        verifyDecision = { outcome: 'block', reason: 'would fail if consulted' };
-        let applied = 0;
-        effects = [{ effect: 'target-ref', idempotencyKey: 'main<-branch', expected: {}, apply: async () => { applied++; return { ok: true, observed: {} }; } }];
-
-        const accepted = await service.accept(task.id, { force: true });
-
-        expect(verifyCandidateCalls).toEqual([]);
-        expect(applied).toBe(1);
-        expect(accepted).toMatchObject({ state: 'done', escalationReason: null });
-        expect(await attempts.get(run.id)).toMatchObject({ state: 'passed', reason: 'operator-accept', verifiedHeadOid: 'cand-oid' });
+        expect(statuses).toEqual(['merging']);
         expect(resumed).toEqual([]);
       });
 
@@ -346,7 +322,6 @@ describe('escalation-service', () => {
         expect((err as DomainError).code).toBe('conflict');
         expect((err as DomainError).message).toContain('no candidate to accept');
         expect((await tasks.get(task.id)).state).toBe('escalated');
-        expect(verifyCandidateCalls).toEqual([]);
         expect(resumed).toEqual([]);
       });
 
@@ -375,12 +350,10 @@ describe('escalation-service', () => {
         expect(resumed).toEqual([{ taskId: task.id, guidance: 'use the shared limiter', startNow: true }]);
       });
 
-      it('requires guidance (validation), and does not resume without it', async () => {
+      it('hands empty guidance to the loop', async () => {
         const { task } = await escalated();
-        const err = await service.reject(task.id, '   ').catch((e: unknown) => e);
-        expect(err).toBeInstanceOf(DomainError);
-        expect((err as DomainError).code).toBe('validation');
-        expect(resumed).toEqual([]);
+        await service.reject(task.id, '   ');
+        expect(resumed).toEqual([{ taskId: task.id, guidance: '', startNow: false }]);
         expect((await tasks.get(task.id)).state).toBe('escalated');
       });
     });
@@ -420,7 +393,7 @@ describe('escalation-routes', () => {
     return dir;
   }
 
-  const critic = () => ({ taskPreMergeCritics: [{ issuePrompt: 'Review the issue diff for correctness.', noIssuePrompt: 'Review the Task diff for correctness.', model: 'stub-model' }] });
+  const critic = () => ({ taskPreMergeCritics: [{ kind: 'local' as const, enabled: true, critic: { id: 'critic-test', name: 'Test critic', issuePrompt: 'Review the issue diff for correctness.', noIssuePrompt: 'Review the Task diff for correctness.', model: 'stub-model', timeoutSeconds: 300 } }] });
 
   describe('escalation actions on a worktree ticket', () => {
     let server: TestServer;
@@ -497,11 +470,11 @@ describe('escalation-routes', () => {
     });
 
     describe('POST /tasks/:id/accept', () => {
-      it('force: true merges the candidate as-is, overriding a still-failing critic — an operator override', async () => {
+      it('merges the candidate as-is, overriding a still-failing critic — the operator judgement is the gate, no verification runs', async () => {
         const baseOidBefore = git(repoDir, 'rev-parse', 'main');
         const { taskId, file } = await escalateViaCriticFail();
 
-        const accepted = await server.api('POST', `/api/tasks/${taskId}/accept`, { force: true });
+        const accepted = await server.api('POST', `/api/tasks/${taskId}/accept`);
         expect(accepted.status).toBe(200);
         expect(accepted.body).toMatchObject({ state: 'done', escalationReason: null });
 
@@ -513,27 +486,10 @@ describe('escalation-routes', () => {
 
         expect(git(repoDir, 'rev-parse', 'main')).not.toBe(baseOidBefore);
         expect(git(repoDir, 'show', `main:${file}`)).toBe('work');
-      });
 
-      it('a default accept (no force) verifies the candidate first; a passing verify merges it and moves the ticket to done (issue #429)', async () => {
-        const baseOidBefore = git(repoDir, 'rev-parse', 'main');
-        const { taskId, file } = await escalateViaCriticFail();
-        criticResult = { verdict: 'pass', summary: 'looks correct now' };
-
-        const accepted = await server.api('POST', `/api/tasks/${taskId}/accept`);
-        expect(accepted.status).toBe(200);
-        expect(accepted.body).toMatchObject({ state: 'done', escalationReason: null });
-        expect(git(repoDir, 'rev-parse', 'main')).not.toBe(baseOidBefore);
-        expect(git(repoDir, 'show', `main:${file}`)).toBe('work');
-      });
-
-      it('an empty body ({}) also defaults force to false and still verifies', async () => {
-        const { taskId } = await escalateViaCriticFail();
-        criticResult = { verdict: 'pass', summary: 'looks correct now' };
-
-        const accepted = await server.api('POST', `/api/tasks/${taskId}/accept`, {});
-        expect(accepted.status).toBe(200);
-        expect(accepted.body).toMatchObject({ state: 'done', escalationReason: null });
+        // No second verification attempt was recorded by the accept — the two on
+        // record are the ones from the exhausted attempt loop, not a re-verify.
+        expect(await verificationAttempts(taskId)).toHaveLength(2);
       });
 
       it('409s invalid_state when the ticket is not escalated (a passing critic merges on its own)', async () => {
@@ -607,11 +563,11 @@ describe('escalation-routes', () => {
         expect(runs[0].branch).toBe(branch);
       });
 
-      it('400s on empty guidance and leaves the ticket escalated', async () => {
+      it('accepts empty guidance and returns the ticket to ready', async () => {
         const { taskId } = await escalateViaCriticFail();
         const res = await server.api('POST', `/api/tasks/${taskId}/reject`, { guidance: '' });
-        expect(res.status).toBe(400);
-        expect((await server.api('GET', `/api/tasks/${taskId}`)).body.state).toBe('escalated');
+        expect(res.status).toBe(200);
+        expect((await server.api('GET', `/api/tasks/${taskId}`)).body).toMatchObject({ state: 'ready', feedback: null });
       });
     });
 

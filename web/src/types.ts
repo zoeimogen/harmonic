@@ -4,7 +4,19 @@ import type { Verdict } from '../../src/verification/critic-schema.js';
 export const TASK_STATES = ['draft', 'ready', 'working', 'paused', 'escalated', 'done', 'cancelled'] as const;
 export type TaskState = (typeof TASK_STATES)[number];
 
-export const MERGE_STATUSES = ['merging', 'resolving-conflicts'] as const;
+export interface UpdateState {
+  currentVersion: string;
+  availableVersion: string | null;
+  armedVersion: string | null;
+  dismissedVersion: string | null;
+  idle: {
+    runningAttempts: number;
+    mergingOrIntegrating: boolean;
+    conversationMidTurn: boolean;
+  };
+}
+
+export const MERGE_STATUSES = ['verifying', 'merging', 'resolving-conflicts'] as const;
 export type MergeStatus = (typeof MERGE_STATUSES)[number];
 
 export type AttemptState = 'running' | 'passed' | 'failed' | 'escalated' | 'cancelled';
@@ -183,6 +195,38 @@ export interface FsListing {
   entries: FsEntry[];
 }
 
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  type: 'directory' | 'file';
+  size: number;
+  excluded: boolean;
+}
+
+export interface WorkspaceFileListing {
+  path: string;
+  entries: WorkspaceFileEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface WorkspaceFile {
+  text: string | null;
+  mime: string;
+  size: number;
+  isBinary: boolean;
+  isTooLarge: boolean;
+}
+
+export type GitStatusCode = '.' | 'M' | 'T' | 'A' | 'D' | 'R' | 'C' | 'U' | '?';
+
+export interface GitStatusEntry {
+  path: string;
+  indexStatus: GitStatusCode;
+  worktreeStatus: GitStatusCode;
+}
+
 /**
  * A Workspace's Resolved Tracker, as the API flattens it: a display
  * `label` when resolved, else a coded `reason` it can't. A discriminated union so
@@ -197,8 +241,10 @@ export interface Workspace {
   id: number;
   name: string;
   workingDir: string;
+  color: string;
   trackerEnabled: boolean;
   trackerPollIntervalSeconds: number;
+  excludedDirectories: string[];
   /** The {@link ResolvedTracker}; `null` when tracking is off. */
   resolvedTracker: ResolvedTracker | null;
   /** Per-workspace setting overrides. `null` inherits the
@@ -217,12 +263,12 @@ export interface Workspace {
   /** Per-workspace attempt cap; null inherits `config.maxAttempts`. */
   maxAttempts: number | null;
   contextReuseTokenLimit: number | null;
-  taskPreMergeCommands: VerificationCommand[] | null;
-  taskPreMergeCritics: TaskVerificationCritic[] | null;
-  taskPostMergeCommands: VerificationCommand[] | null;
-  taskPostMergeCritics: TaskVerificationCritic[] | null;
-  epicPreMergeCommands: VerificationCommand[] | null;
-  epicPreMergeCritics: EpicVerificationCritic[] | null;
+  taskPreMergeCommands: CommandOverlayEntry[] | null;
+  taskPreMergeCritics: TaskCriticOverlayEntry[] | null;
+  taskPostMergeCommands: CommandOverlayEntry[] | null;
+  taskPostMergeCritics: TaskCriticOverlayEntry[] | null;
+  epicPreMergeCommands: CommandOverlayEntry[] | null;
+  epicPreMergeCritics: EpicCriticOverlayEntry[] | null;
   /** Guardrail overrides; `null` inherits
    * `config.guardrails.{budget,progress}`. The budget reads back as the parsed
    * object shape it was PATCHed as. */
@@ -246,6 +292,8 @@ export interface Workspace {
 /** A command verifier: an argv-based check run against a
  * frozen candidate in a disposable checkout. Mirrors `verificationCommandSchema`. */
 export interface VerificationCommand {
+  /** Stable identity, independent of argv; assigned once, never editable. */
+  id: string;
   command: string;
   args: string[];
   cwd?: string;
@@ -256,18 +304,30 @@ export interface VerificationCommand {
 /** An agent critic verifier: a read-only reviewer with
  * its own prompt and model. Mirrors `verificationCriticSchema`. */
 export interface TaskVerificationCritic {
+  /** Stable identity, independent of `name` (not guaranteed unique). */
+  id: string;
+  /** Operator-facing label; the critic's row title in settings. */
+  name: string;
   issuePrompt: string;
   noIssuePrompt: string;
   model: string;
   /** Reviewer harness; omitted = reuse the builder task's harness. */
   harness?: string;
+  /** Hard timeout in seconds for the critic's review turn (default 300). */
+  timeoutSeconds: number;
 }
 
 export interface EpicVerificationCritic {
+  /** Stable identity, independent of `name` (not guaranteed unique). */
+  id: string;
+  /** Operator-facing label; the critic's row title in settings. */
+  name: string;
   prompt: string;
   model: string;
   /** Reviewer harness; omitted = reuse the builder task's harness. */
   harness?: string;
+  /** Hard timeout in seconds for the critic's review turn (default 300). */
+  timeoutSeconds: number;
 }
 
 export interface TaskVerificationStage {
@@ -279,6 +339,25 @@ export interface EpicVerificationStage {
   commands: VerificationCommand[];
   critics: EpicVerificationCritic[];
 }
+
+/**
+ * A Workspace's additive command overlay entry (ADR-0037): a `global` entry
+ * reorders/disables a global command by `ref` (its id) without editing it; a
+ * `local` entry inlines a Workspace-owned command, fully editable.
+ */
+export type CommandOverlayEntry =
+  | { kind: 'global'; ref: string; enabled: boolean }
+  | { kind: 'local'; enabled: boolean; command: VerificationCommand };
+
+/** The task-critic counterpart of {@link CommandOverlayEntry}. */
+export type TaskCriticOverlayEntry =
+  | { kind: 'global'; ref: string; enabled: boolean }
+  | { kind: 'local'; enabled: boolean; critic: TaskVerificationCritic };
+
+/** The epic-critic counterpart of {@link CommandOverlayEntry}. */
+export type EpicCriticOverlayEntry =
+  | { kind: 'global'; ref: string; enabled: boolean }
+  | { kind: 'local'; enabled: boolean; critic: EpicVerificationCritic };
 
 /** The budget Guardrail: a mandatory wall-clock bound per afk Attempt
  * plus optional token and cost caps (`null` = that cap is off). */
@@ -566,6 +645,7 @@ export interface Conversation {
   harness: string;
   model: string;
   workingDir: string;
+  permissionMode: 'ask' | 'automatic';
   state: 'active' | 'ended';
   sessionId: string | null;
   createdAt: number;
@@ -597,6 +677,15 @@ export interface Conversation {
   contextWindow: number | null;
   /** The configured harness cache warm period, in seconds. */
   cacheWarmSeconds: number | null;
+  coldResume?: boolean;
+  commands?: AdvertisedCommand[];
+  commandPrefix?: string;
+}
+
+export interface AdvertisedCommand {
+  name: string;
+  description: string;
+  argumentHint?: string;
 }
 
 /**
@@ -697,6 +786,7 @@ export interface HarnessConfig {
   models: ModelCatalogEntry[];
   defaultModel: string;
   cacheWarmSeconds: number;
+  permissionMode?: string;
   sessionLogDir?: string;
 }
 
@@ -821,13 +911,41 @@ export interface AttemptUsageEvent {
   cost: Cost | null;
 }
 
+/**
+ * One Attempt as a fleet-Timeline span (`GET /api/timeline`): its lane (harness),
+ * outcome, and the window it occupied. Reads persisted history, so it spans
+ * finished work the live Activity snapshot no longer retains. A still-running
+ * Attempt has a null `endedAt`; the Timeline extends its bar to now.
+ */
+export interface TimelineAttempt {
+  taskId: number;
+  attemptId: number;
+  number: number;
+  title: string;
+  harness: string;
+  model: string;
+  /** An AttemptState: 'running' | 'passed' | 'failed' | 'escalated' | 'cancelled'. */
+  state: string;
+  trackerRef: number | null;
+  startedAt: number;
+  endedAt: number | null;
+  /** Frozen Cost for a finished Attempt; null while running or when nothing was priceable. */
+  cost: Cost | null;
+  workspace: Pick<Workspace, 'id' | 'name' | 'color'>;
+}
+
+export interface TimelineResponse {
+  attempts: TimelineAttempt[];
+  from: number;
+  to: number;
+}
+
 export interface AppConfig {
   /** Operator display name for this instance; empty string means unnamed (UI falls back to "Harmonic"). */
   name: string;
   harnesses: Record<string, HarnessConfig>;
   defaults: {
     harness: string;
-    workingDir: string;
     isolationMode: 'direct' | 'worktree';
     priority: 'high' | 'normal' | 'low';
     /** Conflict-resolve bound. */
@@ -866,6 +984,9 @@ export interface AppConfig {
   /** Reuse a warm Session into the next attempt while its context occupancy stays
    * below this many tokens; at or above it, start a condensed new Session. */
   contextReuseTokenLimit: number;
+  editor: {
+    maxFileSizeBytes: number;
+  };
   /** The Task Prompt template for native Attempts, with {prompt}/{id}/{workingDir}/{harness}/{model} placeholders. */
   taskPrompt: string;
 }
@@ -873,4 +994,5 @@ export interface AppConfig {
 export interface ConfigLayers {
   baseline: AppConfig;
   global: AppConfig;
+  harnessPermissionModes: Record<string, { modes: Record<string, string>; defaultMode: string }>;
 }

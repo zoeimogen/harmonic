@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { formatAvgCostPerRun, formatCost, usd } from '../cost';
 import { api } from '../api';
-import { card, displayTitle, labelType, tableHead, touchTarget } from '../ui';
+import { card, labelType, tableHead, touchTarget } from '../ui';
+import { PageHeader } from './PageHeader';
 import {
   cacheHitRate,
   failureRate,
@@ -110,6 +111,66 @@ function SummaryCell({ label, value, swatch }: { label: string; value: string; s
   );
 }
 
+const WORKSPACE_TOKEN_TYPES = [
+  { key: 'inputTokens', label: 'Input' },
+  { key: 'outputTokens', label: 'Output' },
+  { key: 'cacheReadTokens', label: 'Cache read' },
+  { key: 'cacheWriteTokens', label: 'Cache write' },
+] as const;
+
+function WorkspaceUsage({ stats }: { stats: Stats }) {
+  const workspaces = stats.byWorkspace.filter((workspace) =>
+    WORKSPACE_TOKEN_TYPES.some(({ key }) => workspace[key] > 0),
+  );
+  if (workspaces.length === 0) return null;
+
+  return (
+    <section className={`${card} mb-4 p-5`}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-title font-semibold">Usage by workspace</h2>
+          <p className="mt-1 text-small text-muted">Each token type is split by Workspace.</p>
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-label text-muted">
+          {workspaces.map((workspace) => (
+            <span key={workspace.workspaceId} className="inline-flex items-center gap-1.5">
+              <span className="flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-[#1b1e24]" style={{ backgroundColor: workspace.color }} aria-hidden="true">
+                {workspace.name.trim().charAt(0).toUpperCase()}
+              </span>
+              {workspace.name}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-4" role="region" aria-label="Tokens by workspace">
+        {WORKSPACE_TOKEN_TYPES.map(({ key, label }) => {
+          const total = workspaces.reduce((sum, workspace) => sum + workspace[key], 0);
+          return (
+            <div key={key}>
+              <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                <span className="text-small font-medium text-ink">{label}</span>
+                <span className="text-label tabular-nums text-muted">{compact.format(total)}</span>
+              </div>
+              <div className="flex h-3 overflow-hidden rounded-full bg-raised">
+                {workspaces.map((workspace) => (
+                  <span
+                    key={workspace.workspaceId}
+                    className="h-full first:rounded-l-full last:rounded-r-full"
+                    style={{ width: `${total === 0 ? 0 : (workspace[key] / total) * 100}%`, backgroundColor: workspace.color }}
+                    title={`${workspace.name}: ${fmt(workspace[key])} ${label.toLowerCase()} tokens`}
+                    role="img"
+                    aria-label={`${workspace.name}: ${fmt(workspace[key])} ${label.toLowerCase()} tokens`}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function StatsPage({ workspaceId }: { workspaceId: number | null }) {
   const [range, setRange] = useState('7 days');
   const [stats, setStats] = useState<Stats | null>(null);
@@ -117,12 +178,11 @@ export function StatsPage({ workspaceId }: { workspaceId: number | null }) {
   const [metric, setMetric] = useState<StatMetric>('usd');
 
   useLiveEffect((live) => {
-    if (workspaceId === null) return;
     const span = RANGES[range] ?? null;
     const from = span === null ? 0 : Date.now() - span;
     setError(null);
     api
-      .stats(from, Date.now(), workspaceId)
+      .stats(from, Date.now(), workspaceId ?? undefined)
       .then((s) => live() && setStats(s))
       .catch((e) => {
         if (!live()) return;
@@ -213,16 +273,18 @@ export function StatsPage({ workspaceId }: { workspaceId: number | null }) {
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <h1 className={displayTitle}>Usage &amp; statistics</h1>
-        <div className="flex-1" />
-        <SegmentedControl
-          ariaLabel="Time range"
-          options={Object.keys(RANGES).map((r) => ({ label: r, value: r }))}
-          value={range}
-          onChange={setRange}
-        />
-      </div>
+      <PageHeader
+        title="Stats"
+        description={workspaceId === null ? 'Spend, tokens, and reliability across the fleet' : 'Spend, tokens, and reliability for this Workspace'}
+        actions={
+          <SegmentedControl
+            ariaLabel="Time range"
+            options={Object.keys(RANGES).map((r) => ({ label: r, value: r }))}
+            value={range}
+            onChange={setRange}
+          />
+        }
+      />
 
       {workspaceId !== null && (
         <AttemptHeatmap
@@ -313,6 +375,8 @@ export function StatsPage({ workspaceId }: { workspaceId: number | null }) {
             </section>
           )}
 
+          {workspaceId === null && <WorkspaceUsage stats={stats} />}
+
           {stats.byWorkspace.length > 0 && (
             <section className={`${card} mb-4 p-5`}>
               <h2 className="mb-3 text-title font-semibold">Where the spend goes</h2>
@@ -331,7 +395,14 @@ export function StatsPage({ workspaceId }: { workspaceId: number | null }) {
                   <tbody>
                     {stats.byWorkspace.map((ws) => (
                       <tr key={ws.workspaceId} className="border-t border-hairline">
-                        <td className="py-2 font-medium text-ink">{ws.name}</td>
+                        <td className="py-2 font-medium text-ink">
+                          <span className="inline-flex items-center gap-2">
+                            <span className="flex size-5 items-center justify-center rounded-full text-[10px] font-bold text-[#1b1e24]" style={{ backgroundColor: ws.color }} aria-hidden="true">
+                              {ws.name.trim().charAt(0).toUpperCase()}
+                            </span>
+                            {ws.name}
+                          </span>
+                        </td>
                         <td className="py-2 text-right font-semibold tabular-nums text-ink">
                           {formatCost(ws.cost) ?? '—'}
                         </td>
@@ -366,7 +437,7 @@ export function StatsPage({ workspaceId }: { workspaceId: number | null }) {
             {filled.length >= 2 && failsTotal > 0 && (
               <div className="mt-6">
                 <StatLabel>Fails per day</StatLabel>
-                <CostBars series={filled} metric="fails" />
+                <CostBars series={filled} metric="fails" tone="fail" />
               </div>
             )}
 
@@ -375,7 +446,7 @@ export function StatsPage({ workspaceId }: { workspaceId: number | null }) {
               {reasonBars.length === 0 ? (
                 <p className="text-muted">No failures in range.</p>
               ) : (
-                <BarChart bars={reasonBars} ariaLabel="Failures by reason" />
+                <BarChart bars={reasonBars} ariaLabel="Failures by reason" tone="fail" />
               )}
             </div>
           </section>

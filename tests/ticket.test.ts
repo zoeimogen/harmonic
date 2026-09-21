@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { baselineConfig } from '../src/config.js';
 import { type AsyncDbHandle, openAsyncDb } from '../src/db/async.js';
+import { attemptEvents } from '../src/db/schema.js';
 import { AttemptStore } from '../src/domain/attempts.js';
 import { type MirrorInput, TaskService } from '../src/domain/tasks.js';
 import { type SettingsStore } from '../src/server/settings-store.js';
 import { type Ticket, type TrackerAdapter } from '../src/tracker/adapter.js';
 import { mirrorScan } from '../src/tracker/mirror.js';
 import { TrackerPoller } from '../src/tracker/poller.js';
-import { allWorkspaces, makeSettingsStore, startServer, stubHarness, type TestServer } from './helpers.js';
+import { allWorkspaces, makeSettingsStore, startServer, stubHarness, type TestServer, seedWorkspace } from './helpers.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -62,6 +63,23 @@ describe('ticket-timeline-route', () => {
       ]);
       const finished = response.body.events.find((event: { kind: string }) => event.kind === 'attempt-finished');
       expect(finished).toMatchObject({ data: { attempt: 1, state: 'passed', feedback: null, reason: null } });
+    });
+
+    it('surfaces a malformed lifecycle event payload as { malformed: true } instead of 500ing the endpoint (issue #652)', async () => {
+      const task = await server.api('POST', '/api/tasks', { prompt: 'malformed payload target' });
+      const attempt = await server.app.ctx.attempts.create(task.body.id);
+      await server.app.ctx.attempts.appendEvent(attempt.id, { type: 'lifecycle', payload: { event: 'progress-nudge', pattern: 'monologue' } });
+      await server.app.ctx.asyncDb.write((d) =>
+        d.insert(attemptEvents).values({ attemptId: attempt.id, seq: 2, ts: 500, type: 'lifecycle', payload: 'not valid json{' }).run(),
+      );
+
+      const response = await server.api('GET', `/api/tasks/${task.body.id}/timeline`);
+
+      expect(response.status).toBe(200);
+      const lifecycleEvents = response.body.events.filter((event: { kind: string }) => event.kind === 'lifecycle');
+      expect(lifecycleEvents).toHaveLength(2);
+      expect(lifecycleEvents).toContainEqual(expect.objectContaining({ data: { type: 'lifecycle', payload: { event: 'progress-nudge', pattern: 'monologue' } } }));
+      expect(lifecycleEvents).toContainEqual(expect.objectContaining({ data: { type: 'lifecycle', payload: { malformed: true } } }));
     });
 
     it('derives Reject with guidance from adjacent attempts without misreporting Close as Reject', async () => {
@@ -161,6 +179,7 @@ describe('ticket-closed-while-working', () => {
     beforeEach(async () => {
       dir = mkdtempSync(join(tmpdir(), 'harmonic-closed-working-'));
       asyncDb = await openAsyncDb(dir);
+      await seedWorkspace(asyncDb);
       settingsStore = await makeSettingsStore(dir);
       tasks = new TaskService(asyncDb, () => baselineConfig(), allWorkspaces(asyncDb, settingsStore));
       runs = new AttemptStore(asyncDb);

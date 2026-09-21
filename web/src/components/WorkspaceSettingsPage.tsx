@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Workspace } from '../types';
 import { btnDestructive, btnGhost, displayTitle, field } from '../ui';
-import { parseFieldErrors } from './SettingsSection';
+import { humanizeSaveError, parseFieldErrors } from './SettingsSection';
 import { Modal } from './Modal';
 import { SettingsForm } from './SettingsForm';
 import type { AppConfig } from '../types';
@@ -60,6 +60,7 @@ export function WorkspaceSettingsPage({
     try {
       const updated = await api.updateWorkspace(local.id, {
         name: local.name,
+        color: local.color,
         trackerEnabled: local.trackerEnabled,
         trackerPollIntervalSeconds: local.trackerPollIntervalSeconds,
         harness: local.harness,
@@ -88,13 +89,14 @@ export function WorkspaceSettingsPage({
         driveMergeFate: local.driveMergeFate,
         driveContinueAttempts: local.driveContinueAttempts,
         taskPrompt: local.taskPrompt,
+        excludedDirectories: local.excludedDirectories,
       });
       setPristine(updated);
       setLocal(updated);
       onSaved(updated);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      setError(message);
+      setError(humanizeSaveError(message));
       setFieldErrors(parseFieldErrors(message));
     } finally {
       setSaving(false);
@@ -117,8 +119,7 @@ export function WorkspaceSettingsPage({
       title="Workspace"
       intro={
         <>
-          Settings for <span className="font-semibold text-ink">{pristine.name}</span> — its identity and its overrides
-          of the global defaults. Overridable fields inherit the default until you turn an override on.
+          Project, tracker, and verifier overrides for <span className="font-semibold text-ink">{pristine.name}</span>
         </>
       }
       tabs={workspaceTabs()}

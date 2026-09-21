@@ -1,24 +1,26 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type AppConfig, type DeepPartial } from '../src/config.js';
 import { apiKeys, conversationEvents } from '../src/db/schema.js';
 import { accumulateUsage, type AttemptUsage, contextInputTokens } from '../src/execution/usage.js';
-import { startServer, stubHarness, type TestServer, waitFor, connectFirehose } from './helpers.js';
+import { STUB_HARNESS, startServer, stubHarness, type TestServer, waitFor, connectFirehose } from './helpers.js';
 import { eq } from 'drizzle-orm';
 import { tmpdir } from 'node:os';
+import { mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
 
 describe('conversation-chat-defaults', () => {
   const twoHarnessConfig: DeepPartial<AppConfig> = {
     harnesses: {
       claude: {
-        command: 'noop',
-        args: [],
+        command: process.execPath,
+        args: [STUB_HARNESS],
         models: [{ id: 'claude-a' }, { id: 'claude-b' }],
         defaultModel: 'claude-a',
         cacheWarmSeconds: 300,
       },
       codex: {
-        command: 'noop',
-        args: [],
+        command: process.execPath,
+        args: [STUB_HARNESS],
         models: [{ id: 'codex-a' }, { id: 'codex-b' }],
         defaultModel: 'codex-a',
         cacheWarmSeconds: 300,
@@ -216,21 +218,35 @@ describe('conversation-lifecycle', () => {
       expect((body.events as any[]).some((e) => e.type === 'lifecycle' && e.payload.event === 'idle_timeout')).toBe(true);
     });
 
-    it('marks active Conversations ended on a server restart; the transcript survives', async () => {
+    it('cold-resumes an active Conversation after a server restart', async () => {
       server = await startServer(stubHarness());
       const convo = await firstTurn(server, 'survive as history');
-      expect((await server.api('GET', `/api/conversations/${convo.id}`)).body.state).toBe('active');
+      const originalSessionId = (await server.api('GET', `/api/conversations/${convo.id}`)).body.sessionId;
+      expect(originalSessionId).toEqual(expect.any(String));
 
       const dataDir = server.dataDir;
       await server.app.close();
       server = await startServer(stubHarness(), { dataDir });
 
       const restored = await server.api('GET', `/api/conversations/${convo.id}`);
-      expect(restored.body.state).toBe('ended');
+      expect(restored.body).toMatchObject({ state: 'active', sessionId: originalSessionId, coldResume: true });
+
+      const turn = await server.api('POST', `/api/conversations/${convo.id}/turns`, {
+        text: JSON.stringify({ echoSessionLoad: true }),
+      });
+      expect(turn.status).toBe(200);
+      await waitFor(async () => {
+        const { body } = await server.api('GET', `/api/conversations/${convo.id}`);
+        return body.coldResume === false ? body : undefined;
+      });
+      await waitFor(async () => {
+        const { body } = await server.api('GET', `/api/conversations/${convo.id}/events`);
+        return (body.events as any[]).find((event) => event.type === 'session_update' &&
+          JSON.stringify(event.payload).includes(originalSessionId)) ? body.events : undefined;
+      });
+
       const events = await server.api('GET', `/api/conversations/${convo.id}/events`);
-      expect((events.body.events as any[]).some((e) => e.type === 'user_turn')).toBe(true);
-      const turn = await server.api('POST', `/api/conversations/${convo.id}/turns`, { text: 'nope' });
-      expect(turn.status).toBe(409);
+      expect((events.body.events as any[]).filter((event) => event.type === 'user_turn')).toHaveLength(2);
     });
   });
 });
@@ -319,7 +335,7 @@ describe('conversation-telemetry', () => {
         harnesses: {
           claude: {
             command: process.execPath,
-            args: [],
+            args: [STUB_HARNESS],
             env: {},
             models: [{ id: 'stub-model', contextWindow: 1000 }],
             defaultModel: 'stub-model',
@@ -347,6 +363,11 @@ describe('conversation-rules', () => {
       text: JSON.stringify({ requestPermission: { title: `${kind} thing`, kind }, updates: [] }),
     });
     return waitFor(async () => ws.messages.find((m) => m.type === 'permission_request' && m.conversationId === convoId));
+  }
+
+  async function createSecondWorkspace(server: TestServer) {
+    const workingDir = mkdtempSync(join(tmpdir(), 'harmonic-ws2-'));
+    return (await server.api('POST', '/api/workspaces', { name: 'second', workingDir })).body;
   }
 
   describe('persistent permission rules (issue 13)', () => {
@@ -398,7 +419,8 @@ describe('conversation-rules', () => {
       const promptDifferentKind = await ask(server, ws, a.id, 'execute');
       expect(promptDifferentKind.request.toolCall.kind).toBe('execute');
 
-      const { body: b } = await server.api('POST', '/api/conversations', { workingDir: tmpdir() });
+      const secondWorkspace = await createSecondWorkspace(server);
+      const { body: b } = await server.api('POST', '/api/conversations', { workspaceId: secondWorkspace.id });
       const promptDifferentDir = await ask(server, ws, b.id, 'edit');
       expect(promptDifferentDir.conversationId).toBe(b.id);
 
@@ -587,6 +609,77 @@ describe('conversation-permissions', () => {
       ws.close();
     });
 
+    it('automatically approves permissions without broadcasting them', async () => {
+      const ws = await connectWs(server);
+      const { body: convo } = await server.api('POST', '/api/conversations', { permissionMode: 'automatic' });
+      expect(convo.permissionMode).toBe('automatic');
+
+      await server.api('POST', `/api/conversations/${convo.id}/turns`, {
+        text: JSON.stringify({ requestPermission: { title: 'Write file' }, updates: [] }),
+      });
+
+      const resolved = await waitFor(async () =>
+        (await events(server, convo.id)).find((event) => event.type === 'permission_request'),
+      );
+      expect(resolved.payload.outcome).toMatchObject({ outcome: 'selected' });
+      expect(ws.messages.some((message) => message.type === 'permission_request' && message.conversationId === convo.id)).toBe(false);
+      ws.close();
+    });
+
+    it('uses the harness automatic mode when it is available', async () => {
+      const { body: convo } = await server.api('POST', '/api/conversations', { permissionMode: 'automatic' });
+      await server.api('POST', `/api/conversations/${convo.id}/turns`, {
+        text: JSON.stringify({ echoSetMode: true, updates: [] }),
+      });
+
+      const echoed = await waitFor(async () =>
+        (await events(server, convo.id)).find(
+          (event) => event.type === 'session_update' && String(event.payload?.content?.text ?? '').startsWith('set-mode:'),
+        ),
+      );
+      expect(JSON.parse(String(echoed.payload.content.text).slice('set-mode:'.length))).toMatchObject({ modeId: 'auto' });
+    });
+
+    it('changes permission mode on a warm Conversation', async () => {
+      const { body: convo } = await server.api('POST', '/api/conversations', {});
+      expect(convo.permissionMode).toBe('ask');
+
+      await server.api('POST', `/api/conversations/${convo.id}/turns`, {
+        text: JSON.stringify({ updates: [] }),
+      });
+      const updated = await server.api('PATCH', `/api/conversations/${convo.id}`, { permissionMode: 'automatic' });
+      expect(updated.status).toBe(200);
+      expect(updated.body.permissionMode).toBe('automatic');
+
+      await server.api('POST', `/api/conversations/${convo.id}/turns`, {
+        text: JSON.stringify({ echoSetMode: true, updates: [] }),
+      });
+      const echoed = await waitFor(async () =>
+        (await events(server, convo.id)).find(
+          (event) => event.type === 'session_update' && String(event.payload?.content?.text ?? '').startsWith('set-mode:'),
+        ),
+      );
+      expect(JSON.parse(String(echoed.payload.content.text).slice('set-mode:'.length))).toMatchObject({ modeId: 'auto' });
+    });
+
+    it('restores asking after Automatic is disabled on a warm Conversation', async () => {
+      const ws = await connectWs(server);
+      const { body: convo } = await server.api('POST', '/api/conversations', { permissionMode: 'automatic' });
+      await server.api('POST', `/api/conversations/${convo.id}/turns`, { text: JSON.stringify({ updates: [] }) });
+      await server.api('PATCH', `/api/conversations/${convo.id}`, { permissionMode: 'ask' });
+      await server.api('POST', `/api/conversations/${convo.id}/turns`, {
+        text: JSON.stringify({ requestPermission: { title: 'Write file' }, updates: [] }),
+      });
+
+      const pending = await waitFor(async () =>
+        ws.messages.find((message) => message.type === 'permission_request' && message.conversationId === convo.id),
+      );
+      await server.api('POST', `/api/conversations/${convo.id}/permissions/${pending.reqId}`, {
+        optionId: pending.request.options.find((option: { kind: string }) => option.kind === 'allow_once').optionId,
+      });
+      ws.close();
+    });
+
     it('forwards the native allow_always option for "Allow for this conversation"', async () => {
       const ws = await connectWs(server);
       const { convo, reqId, request } = await askPermission(server, ws);
@@ -637,6 +730,65 @@ describe('conversation-permissions', () => {
       const answer = await server.api('POST', `/api/conversations/${convo.id}/permissions/${reqId}`, { optionId: 'x' });
       expect(answer.status).toBe(404);
       ws.close();
+    });
+  });
+});
+
+describe('conversation-spawn-hardening', () => {
+  describe('cwd allowlist (issue #649)', () => {
+    let server: TestServer;
+    afterEach(async () => {
+      await server?.close();
+    });
+
+    it('rejects a Conversation whose workingDir is outside every configured Workspace root and the managed worktrees root', async () => {
+      server = await startServer(stubHarness());
+      const outOfBounds = mkdtempSync(join(tmpdir(), 'harmonic-oob-'));
+
+      const res = await server.api('POST', '/api/conversations', { workingDir: outOfBounds });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('validation');
+    });
+  });
+
+  describe('spawned-harness env filtering (issue #649)', () => {
+    let server: TestServer;
+    afterEach(async () => {
+      vi.unstubAllEnvs();
+      await server?.close();
+    });
+
+    it('does not leak the daemon parent env into the harness, but still passes through allowlisted vars and operator-configured harness.env', async () => {
+      vi.stubEnv('HARMONIC_TEST_SECRET', 'leak-me');
+      const config: DeepPartial<AppConfig> = {
+        harnesses: {
+          claude: {
+            command: process.execPath,
+            args: [STUB_HARNESS],
+            env: { CUSTOM_HARNESS_VAR: 'from-harness-env' },
+            models: [{ id: 'stub-model' }],
+            defaultModel: 'stub-model',
+            cacheWarmSeconds: 300,
+          },
+        },
+        chat: { harness: 'claude', model: 'stub-model' },
+      };
+      server = await startServer(config);
+
+      const { body: convo } = await server.api('POST', '/api/conversations', {});
+      await server.api('POST', `/api/conversations/${convo.id}/turns`, {
+        text: JSON.stringify({ echoEnv: ['HARMONIC_TEST_SECRET', 'PATH', 'CUSTOM_HARNESS_VAR'], updates: [] }),
+      });
+      const echo = await waitFor(async () => {
+        const { body } = await server.api('GET', `/api/conversations/${convo.id}/events`);
+        return (body.events as any[]).find((e) => e.payload?.content?.text?.startsWith('{'));
+      });
+      const env = JSON.parse(echo.payload.content.text) as Record<string, string | null>;
+
+      expect(env.HARMONIC_TEST_SECRET).toBeNull();
+      expect(env.PATH).toEqual(expect.any(String));
+      expect(env.CUSTOM_HARNESS_VAR).toBe('from-harness-env');
     });
   });
 });

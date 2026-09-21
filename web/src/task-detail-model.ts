@@ -3,7 +3,7 @@
 import { splitPathTail } from './path.js';
 import type { RailSelection } from './router-model.js';
 import { ROOT_AGENT, totalTokens } from './stats-model.js';
-import type { AttemptLogEvent, AttemptSummary, MergeStatus, Step, StepState, StepType, TaskState, ToolTokenAttribution, VerificationMechanism, VerifierStatus } from './types.js';
+import type { AttemptLogEvent, AttemptSummary, MergeStatus, Step, StepState, StepType, TaskState, ToolTokenAttribution, VerificationAttempt, VerificationMechanism, VerifierStatus } from './types.js';
 
 /**
  * What the operator has selected in the navigation sidebar, normalised for the
@@ -17,6 +17,20 @@ export type ContentSelection = RailSelection;
  * (`claude`, `codex`), shown title-cased. */
 export function harnessLabel(harness: string): string {
   return harness.charAt(0).toUpperCase() + harness.slice(1);
+}
+
+/** Copilot's router sentinel (`src/config.ts`'s `AUTO_MODEL_SENTINEL`),
+ * duplicated here rather than imported: that module reads the baseline
+ * config file from disk at import time, which the browser bundle can't do. */
+const AUTO_MODEL_SENTINEL = 'auto';
+
+/** The model identity to show for an Attempt: the task's pinned model, since
+ * that's what was promised, not whichever model (root or subagent) happened
+ * to spend the most tokens. A task pinned to `auto` delegated the choice, so
+ * the token-dominant model IS the honest answer there. */
+export function attemptIdentityModel(primaryModel: string, byModel: readonly { model: string }[]): string {
+  if (primaryModel && primaryModel !== AUTO_MODEL_SENTINEL) return primaryModel;
+  return byModel[0]?.model ?? primaryModel;
 }
 
 /** The content-panel kind the selection resolves to. `stats` is the default
@@ -448,6 +462,13 @@ export function verificationOutputTail(events: readonly AttemptLogEvent[], mecha
   }
   if (!text) return null;
   return text.length > cap ? text.slice(-cap) : text;
+}
+
+/** The critic prompt actually driving the current review — the latest
+ * critic-mechanism attempt's, since re-verify turns share one operator prompt
+ * across multiple candidate OIDs. */
+export function latestCriticPrompt(verificationAttempts: readonly VerificationAttempt[]): string | null {
+  return verificationAttempts.filter((a) => a.mechanism === 'critic' && a.prompt).at(-1)?.prompt ?? null;
 }
 
 /**
