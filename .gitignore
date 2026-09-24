@@ -23,6 +23,7 @@ jev.baseline.change.html
 .impeccable/critique/
 .superpowers/
 .worktrees-local/
+.claude/worktrees
 
 .env
 harmonic.env
