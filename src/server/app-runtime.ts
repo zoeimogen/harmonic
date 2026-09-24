@@ -290,6 +290,7 @@ export async function createRuntime(deps: {
         else recordTaskEventBestEffort(task, payload);
       })();
     },
+    (workspaceId, slug) => tasks.mdFeatureIndex(workspaceId, slug),
   );
   const mergeEffectsFor = (task: TaskRow, run: AttemptRow): MergeEffectExec[] => {
     const effects: MergeEffectExec[] = [];

@@ -3,6 +3,7 @@ import type { TaskRow, AttemptRow, WorkspaceRow, StoredEpicKind } from '../db/sc
 import { resolveTrackerAdapter, type TrackerAdapter, type TicketRef } from '../tracker/adapter.js';
 import { resolveDrive, type ResolvedDrive } from '../domain/setting-override.js';
 import { driveFields, fillTemplate, splitTitleBody } from './prompt-template.js';
+import type { FeatureIndex } from '../tracker/local-markdown.js';
 import { Git } from './git.js';
 import { withBaseCheckoutLock } from './repo-lock.js';
 import { logger } from '../logger.js';
@@ -21,7 +22,7 @@ export class AutoDrive {
   constructor(
     private readonly getConfig: () => AppConfig,
     private readonly urlFor: (task: TaskRow) => string | null,
-    private readonly resolveAdapter: (repoRoot: string) => Promise<TrackerAdapter> = resolveTrackerAdapter,
+    private readonly resolveAdapter: (repoRoot: string, featureIndex?: FeatureIndex) => Promise<TrackerAdapter> = resolveTrackerAdapter,
     /** Resolves a Task's Workspace so `drive.*` inherits its per-Workspace
      * overrides; absent → every field resolves the global default. */
     private readonly getWorkspace?: (workspaceId: number | null) => Promise<DriveWorkspace | undefined>,
@@ -33,7 +34,17 @@ export class AutoDrive {
     private readonly onTicketClosed?: (task: TaskRow, commit: { oid: string; paths: string[] } | null) => void,
     /** Notified when a close attempt throws. */
     private readonly onTicketCloseFailed?: (task: TaskRow, error: unknown) => void,
+    /** The Workspace's stable local-markdown feature index, so ticket numbers
+     * resolve as the poller minted them. Absent → the adapter's sorted fallback. */
+    private readonly featureIndexFor?: (workspaceId: number, slug: string) => Promise<number>,
   ) {}
+
+  private adapterFor(task: TaskRow): Promise<TrackerAdapter> {
+    const { workspaceId } = task;
+    const indexFor = this.featureIndexFor;
+    const featureIndex = workspaceId != null && indexFor ? (slug: string) => indexFor(workspaceId, slug) : undefined;
+    return this.resolveAdapter(task.workingDir, featureIndex);
+  }
 
   /** The auto-driven path: a mirrored Task Harmonic runs unattended. */
   handles(task: TaskRow): boolean {
@@ -109,7 +120,7 @@ export class AutoDrive {
 
     if (fate === 'open-PR') {
       if (worktree) {
-        const adapter = await this.resolveAdapter(task.workingDir);
+        const adapter = await this.adapterFor(task);
         if (adapter.openPR) {
           const { title } = splitTitleBody(task.prompt);
           try {
@@ -151,7 +162,7 @@ export class AutoDrive {
   async closeTicket(task: TaskRow, comment = `Completed and merged by Harmonic (task ${task.id}).`): Promise<boolean> {
     if (task.trackerRef == null) return true;
     try {
-      const adapter = await this.resolveAdapter(task.workingDir);
+      const adapter = await this.adapterFor(task);
       if (!adapter.close) return true;
       const { title } = splitTitleBody(task.prompt);
       const ref = { number: task.trackerRef, title, state: 'open' as const };

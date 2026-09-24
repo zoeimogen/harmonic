@@ -711,3 +711,43 @@ describe('AutoDrive.closeTicket — file-backed tracker commits its status chang
     expect(failed).toEqual([[7, 'locked by another process']]);
   });
 });
+
+describe('AutoDrive.closeTicket — local-markdown ticket numbers follow the stored feature index', () => {
+  let repo: string;
+  const g = (...args: string[]) => execFileSync('git', ['-C', repo, ...args]).toString().trim();
+  const ticket = (slug: string, file: string) => join(repo, '.scratch', slug, 'issues', file);
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'harmonic-md-index-'));
+    execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'main']);
+    g('config', 'user.email', 't@example.com');
+    g('config', 'user.name', 'Tester');
+    mkdirSync(join(repo, 'docs', 'agents'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: local-markdown\n');
+    for (const [slug, file] of [['aaa', '01-a.md'], ['bbb', '02-b.md']]) {
+      mkdirSync(join(repo, '.scratch', slug!, 'issues'), { recursive: true });
+      writeFileSync(ticket(slug!, file!), `# ${file}\n\n**Status:** ready-for-agent\n\n- [ ] do it\n`);
+    }
+    g('add', '-A');
+    g('commit', '-q', '-m', 'seed tickets');
+  });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  // Stored first-seen order (bbb, aaa) deliberately disagrees with sorted order (aaa, bbb).
+  const stored: Record<string, number> = { bbb: 0, aaa: 1 };
+  const featureIndexFor = async (_workspaceId: number, slug: string) => stored[slug]!;
+
+  it.each([
+    [2, 'bbb', '02-b.md'],
+    [10001, 'aaa', '01-a.md'],
+  ])('closes #%i under the stored index, not the sorted directory position', async (trackerRef, slug, file) => {
+    const drive = new AutoDrive(
+      () => baselineConfig(), () => null, undefined, undefined, undefined, undefined, undefined, featureIndexFor,
+    );
+    const task = worktreeTask({ trackerRef, workingDir: repo, workspaceId: 1 });
+
+    expect(await drive.closeTicket(task)).toBe(true);
+
+    expect(readFileSync(ticket(slug, file), 'utf8')).toContain('**Status:** closed');
+  });
+});
